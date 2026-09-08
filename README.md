@@ -173,3 +173,9 @@ WSJT-X 52). Passes in the decode list are inferred from arrival-time bursts.
   pass (the JS run does one subtraction round per pass).
 - The `pass` field in the bundled decode list is inferred from wsjtr's output bursts; each
   outer pass there contains several internal decode/subtract rounds.
+
+## The name
+
+FT8 syncs on a 7-tone Costas array sent three times, at symbols 0, 36 and 72. Seven,
+three. That is also how a ham signs off, so the sync pattern and "best regards" are the
+same number. Stage 1 is where it clicks; the site does not spoil it.
