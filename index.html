@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FT8 for Dummies</title>
+<link rel="stylesheet" href="src/ui/styles.css">
+</head>
+<body>
+<header id="topbar">
+  <a class="brand" href="#home">FT8 for Dummies</a>
+  <nav id="nav"></nav>
+  <label class="filebtn" title="Load a 12 kHz (or any rate) mono WAV of one FT8 slot">📂 open WAV<input id="wavfile" type="file" accept=".wav,audio/wav" hidden></label><button id="btn-example" class="filebtn" title="Back to the bundled window">example</button><div id="loadstatus">loading…</div>
+</header>
+<div id="transport">
+  <button id="btn-play" title="space">▶</button>
+  <button id="btn-stop" title="home">⏮</button>
+  <label>speed <input id="speed" type="range" min="-3" max="3" step="0.25" value="0"><span id="speed-val">1×</span></label>
+  <label><input id="loop" type="checkbox" checked> loop</label>
+  <input id="scrub" type="range" min="0" max="1" step="0.0001" value="0">
+  <span id="clock-readout">0.00 s</span>
+</div>
+<main id="stage"></main>
+<script>
+if (location.protocol === 'file:') {
+  document.getElementById('loadstatus').textContent = 'not served over HTTP';
+  document.getElementById('stage').innerHTML = '<div class="panel" style="max-width:720px"><h3>This page has to be served over HTTP</h3><p class="note">Browsers block ES modules and fetch() on file:// URLs. From the repo directory run one of:</p><pre style="font-size:13px">npm start\npython3 -m http.server 8765\nnpx serve .</pre><p class="note">then open <a href="http://localhost:8765/" style="color:var(--accent)">http://localhost:8765/</a></p></div>';
+}
+</script>
+<script type="module" src="src/ui/app.js"></script>
+</body>
+</html>
