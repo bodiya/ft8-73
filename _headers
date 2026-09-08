@@ -1,0 +1,11 @@
+# Cache rules for Netlify and Cloudflare Pages (ignored by GitHub Pages, which has no
+# configurable headers). The bundled window never changes, so it can be cached hard; the code
+# is served fresh so a redeploy is picked up without a hard refresh.
+/data/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/src/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

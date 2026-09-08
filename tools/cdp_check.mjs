@@ -1,7 +1,7 @@
 // Drive the app in headless Chrome over CDP: visit every stage and tab, poke controls, report console errors/exceptions.
 import { spawn } from 'node:child_process';
 const port = 9333;
-const chrome = spawn('google-chrome', ['--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${port}`, '--window-size=1500,1200', 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(process.env.CHROME || 'google-chrome', ['--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${port}`, '--window-size=1500,1200', 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 await sleep(1500);
 const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -19,7 +19,7 @@ const go = async h => { await evaluate(`location.hash='#${h}'`); await sleep(700
 const slider = async (i, v) => evaluate(`(()=>{const r=document.querySelectorAll('.controls input[type=range]'); if(!r[${i}]) return 'missing'; r[${i}].value=${v}; r[${i}].dispatchEvent(new Event('input')); return 'ok';})()`);
 const sel = async (i, v) => evaluate(`(()=>{const s=document.querySelectorAll('.controls select'); if(!s[${i}]) return 'missing'; s[${i}].value=${JSON.stringify(v)}; s[${i}].dispatchEvent(new Event('change')); return 'ok';})()`);
 const tab = async (i) => evaluate(`(()=>{const b=document.querySelectorAll('.tabs button'); if(!b[${i}]) return 'missing'; b[${i}].click(); return b[${i}].textContent;})()`);
-const canvasClick = async (i, x, y) => evaluate(`(()=>{const e=document.querySelectorAll('canvas')[${i}]; if(!e) return 'missing'; const r=e.getBoundingClientRect(); e.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+${x},clientY:r.top+${y}})); return 'ok';})()`);
+const canvasClick = async (i, x, y) => evaluate(`(()=>{const e=document.querySelectorAll('canvas:not(.bg)')[${i}]; if(!e) return 'missing'; const r=e.getBoundingClientRect(); e.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+${x},clientY:r.top+${y}})); return 'ok';})()`);
 const play = async ms => { await evaluate('app.clock.seek(0); app.clock.play()'); await sleep(ms); await evaluate('app.clock.pause()'); };
 
 await go('signal'); await canvasClick(0, 400, 300); await sel(0, '1920'); await play(600); await evaluate('app.clock.setSpeed(0.25)'); await sleep(300); await evaluate('app.clock.setSpeed(1)');

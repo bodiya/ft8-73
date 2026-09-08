@@ -35,15 +35,16 @@ wsjtr's list.
 
 ```
 index.html              shell: top bar (nav, open WAV, example), transport bar, #stage
-src/ui/app.js           app state, routing (#hash per page), data loading, worker wiring, clock
+src/ui/app.js           app state, routing (#page or #page/view), data loading, worker wiring, clock, idle warm-up
 src/ui/clock.js         transport clock (t, duration, speed, loop); each page sets its own duration
-src/ui/controls.js      slider/select/checkbox/button/panel/canvas builders
-src/ui/draw.js          colormaps, heatmap (with max-pool option), axes, line plots
+src/ui/controls.js      slider/select/checkbox/button/panel/canvas builders, layers(), tabbar(), caption()
+src/ui/draw.js          colormaps, cached heatmap renderer, axes, line plots
 src/ui/styles.css
 src/dsp/                the decoder (see README for the file → Rust module map)
 src/vis/                one module per page: home, stage0_signal … stage4_passes, stage5_encode
 data/                   bundled window (raw + wsjtr's pass-2/3 residual WAVs) and decode lists
 tools/                  Node tests and the CDP drivers
+.github/workflows/      GitHub Pages deploy; .nojekyll and _headers are the other hosting bits
 DECISIONS.md            pending choices and loose ends; update it when they change
 ```
 
@@ -67,8 +68,50 @@ DECISIONS.md            pending choices and loose ends; update it when they chan
   with DT = 0 begins at sample 6000; subtraction takes `dt + 0.5`.
 - Heavy work (multi-pass decode with subtraction) runs in `src/dsp/worker.js`; the main
   thread computes a single candidate trace synchronously (~5 ms) and the sync surface
-  (~70 ms).
+  (~40 ms).
 - Text style in the UI: no em-dashes; short blurbs; numbers in tables or readouts.
+
+## Performance rules
+
+The transport clock fires on every animation frame, so the per-tick path is the budget. Follow
+these or the app gets slow again:
+
+- **Nothing expensive in a clock subscriber.** Split each plot with `layers(parent, w, h, 2)`
+  from `controls.js`: index 0 is the background (heatmaps, axes, annotations, anything that
+  depends only on the controls), the last index is a transparent overlay that carries the
+  playhead and takes the pointer events. Redraw the background from control handlers and app
+  events, the overlay from the clock.
+- **Skip redundant frames.** Most pages quantize the clock (a lag index, a symbol, a BP
+  iteration, 4 spectrogram rows). Keep the last quantized value and return early when it has not
+  changed; a 60 Hz tick on a half-second BP iteration is 30 wasted redraws.
+- **`heatmap()` caches its rendered offscreen canvas** keyed on the identity of `data` plus every
+  parameter that affects a pixel. Pass a stable array. If you must rebuild the array in place,
+  pass a `version` that changes when the contents do (see stage 1's template view).
+- **Precompute at mount, tab entry or idle, never in a frame.** `app.warm()` builds the
+  192k-point `DecodeContext` and the SNR baseline on the first idle callback and then starts the
+  background JS decode; `app.ensureJsDecoder()` starts that decode on demand. Stage 1 builds its
+  causal ladder in chunked `setTimeout` work with a progress readout.
+- **`powerSpectrum()` returns a fresh array but reuses its working buffers**, so the result is
+  safe to hold; do not reintroduce a shared output buffer, it was worth 2%.
+- **DSP changes must be output-identical.** Both kernel speedups (`toneSums` in `sync.js`, the
+  twiddle tables in `fft.js`) were verified by diffing every value against the previous
+  implementation, not just by running `npm test`. Do the same: import both versions in a scratch
+  script and compare arrays element by element before trusting a change.
+
+## Routing and views
+
+The hash is `#<page>` or `#<page>/<view>`. `route()` in `app.js` remounts on a page change but
+calls the page module's `setTab(id)` on a view change, so switching views does not rebuild the
+DOM. A page with views: read `app.tabFor(page, validIds)` in `mount` for the view to open with
+(URL first, then the remembered one), build the bar with `tabbar(...)` whose `onpick` is
+`app.setTab`, expose `setTab` on the module (and null it in `unmount`), and give every view a
+`caption()` saying what the clock does there and what to look for.
+
+## Hosting
+
+Every runtime URL resolves against `import.meta.url` (`app.asset('data/...')` for data files,
+`new URL('../dsp/worker.js', import.meta.url)` for the worker), so the app runs from any subpath.
+Do not add document-relative `fetch()` or `new Worker()` paths.
 
 ## Data provenance
 

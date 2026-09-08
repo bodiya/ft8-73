@@ -24,7 +24,62 @@ export function checkbox(parent, { label, value, onchange }) {
   w.append(inp, label); parent.append(w); Object.defineProperty(w, 'value', { get: () => inp.checked, set: v => { inp.checked = v; } });
   return w;
 }
+/**
+ * Coalesce repeated calls into at most one run per animation frame, last arguments win.
+ * Slider `input` events fire far faster than the work behind them (a spectrogram rebuild, a full
+ * decode, a re-synthesis), and without this a drag queues one of those per event. When the work
+ * itself is longer than a frame this self-throttles to "run, then run again with the latest
+ * value", which is what a drag should do.
+ */
+export function coalesce(fn) {
+  let raf = 0, args = null;
+  return (...a) => {
+    args = a;
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; const x = args; args = null; fn(...x); });
+  };
+}
 export function button(parent, label, onclick) { const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', onclick); parent.append(b); return b; }
 export function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 export function panel(parent, title, cls = '') { const p = el('div', 'panel ' + cls); if (title) p.append(el('h3', null, title)); parent.append(p); return p; }
-export function canvas(parent, w, h) { const c = document.createElement('canvas'); const dpr = window.devicePixelRatio || 1; c.width = w * dpr; c.height = h * dpr; c.style.width = w + 'px'; c.style.height = h + 'px'; parent.append(c); const g = c.getContext('2d'); g.scale(dpr, dpr); c.g = g; c.w = w; c.h = h; return c; }
+/** Backing-store scale. Capped at 2: a 3x display would quadruple the fill cost of every canvas
+ *  for no visible gain on these plots, and every page here is fill-bound, not vector-bound. */
+export const DPR_CAP = 2;
+export function dpr() { return Math.min(window.devicePixelRatio || 1, DPR_CAP); }
+function mkCanvas(w, h) {
+  const c = document.createElement('canvas'); const d = dpr();
+  c.width = Math.round(w * d); c.height = Math.round(h * d); c.style.width = w + 'px'; c.style.height = h + 'px';
+  const g = c.getContext('2d'); g.scale(d, d); c.g = g; c.w = w; c.h = h; return c;
+}
+export function canvas(parent, w, h) { const c = mkCanvas(w, h); parent.append(c); return c; }
+
+/**
+ * n stacked canvases sharing one CSS box, for splitting a plot into a static background that is
+ * redrawn only when its inputs change and a cheap overlay that follows the transport clock.
+ * Returns the array (index 0 = bottom); only the top canvas takes pointer events, and it has the
+ * same bounding rect as the others, so existing hit-testing code keeps working unchanged.
+ */
+export function layers(parent, w, h, n = 2) {
+  const box = document.createElement('div'); box.className = 'layers'; box.style.width = w + 'px'; box.style.height = h + 'px';
+  const out = [];
+  for (let i = 0; i < n; i++) { const c = mkCanvas(w, h); if (i < n - 1) { c.className = 'bg'; c.style.pointerEvents = 'none'; } else c.className = 'hit'; box.append(c); out.push(c); }
+  parent.append(box); out.box = box; out.top = out[n - 1]; out.w = w; out.h = h;
+  return out;
+}
+
+/**
+ * Tab bar. items is [[id, label], ...]. onpick(id) is called on click; the caller decides whether
+ * that means "change the hash" (deep-linkable views) or just re-render. Returns { el, set(id) }.
+ */
+export function tabbar(parent, items, current, onpick) {
+  const bar = el('div', 'tabs'); const btns = new Map();
+  for (const [id, label] of items) { const b = el('button', id === current ? 'active' : '', label); b.dataset.tab = id; b.onclick = () => onpick(id); bar.append(b); btns.set(id, b); }
+  parent.append(bar);
+  return { el: bar, set(id) { for (const [k, b] of btns) b.classList.toggle('active', k === id); } };
+}
+
+/** The "what the clock does here / what to look for" caption that sits under a tab bar. */
+export function caption(parent, cls = '') {
+  const c = el('div', 'tabcap ' + cls); parent.append(c);
+  return { el: c, set(clock, look) { c.innerHTML = (clock ? `<b>clock:</b> ${clock}` : '') + (look ? `<span class="sep"></span><b>look for:</b> ${look}` : ''); } };
+}

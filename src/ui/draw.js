@@ -14,32 +14,68 @@ export const CMAPS = { viridis: ramp(VIR), hot: ramp(HOT), blue: ramp(BLUE), div
 export function cmapColor(name, v) { const l = CMAPS[name]; const i = Math.max(0, Math.min(255, Math.round(v * 255))) * 3; return `rgb(${l[i]},${l[i + 1]},${l[i + 2]})`; }
 
 /**
+ * Rendered-heatmap cache. Building the ImageData for a heatmap costs one LUT lookup and four
+ * byte writes per source cell, which for the spectrogram (1920 bins x 337 rows) is ~650k cells.
+ * Nothing about that depends on the transport clock, so the result is cached as an offscreen
+ * canvas keyed on the data identity plus every parameter that affects a pixel, and a redraw
+ * costs one drawImage. Callers that build a fresh array every frame will miss every time: they
+ * should memoize the array themselves (see the page modules).
+ */
+const HM_MAX_ENTRIES = 24, HM_MAX_PIXELS = 8e6;   // 8M px of RGBA is ~32 MB of backing store
+const hmCache = new Map();          // insertion-ordered, re-inserted on hit => LRU
+let hmPixels = 0;
+const hmIds = new WeakMap(); let hmNextId = 1;
+function dataKey(a) { let id = hmIds.get(a); if (!id) { id = hmNextId++; hmIds.set(a, id); } return id; }
+function hmEvict() {
+  while (hmCache.size > HM_MAX_ENTRIES || hmPixels > HM_MAX_PIXELS) {
+    const k = hmCache.keys().next().value; if (k === undefined) break;
+    const e = hmCache.get(k); hmCache.delete(k); hmPixels -= e.px;
+  }
+}
+/** Drop everything. Called from app.setAudio(): every entry keys off the old window's arrays. */
+export function clearHeatmapCache() { hmCache.clear(); hmPixels = 0; }
+export function heatmapCacheStats() { return { entries: hmCache.size, pixels: hmPixels }; }
+
+/**
  * Draw a heatmap. data is row-major (rows x cols). rowAt(y) / colAt(x) map pixel -> data index (fractional ok).
  * Rendered via an offscreen ImageData of size (cols x rows) then drawImage-scaled; use `nearest` for crisp cells.
+ * The offscreen render is cached; pass a stable `data` array (or a `version` that changes when you mutate it).
  */
-export function heatmap(g, { data, rows, cols, x, y, w, h, vmin, vmax, cmap = 'viridis', flipY = false, log = false, nearest = false, colRange = null, rowRange = null, pool = false }) {
+export function heatmap(g, { data, rows, cols, x, y, w, h, vmin, vmax, cmap = 'viridis', flipY = false, log = false, nearest = false, colRange = null, rowRange = null, pool = false, version = 0 }) {
   const c0 = colRange ? colRange[0] : 0, c1 = colRange ? colRange[1] : cols; const r0 = rowRange ? rowRange[0] : 0, r1 = rowRange ? rowRange[1] : rows;
-  let nc = c1 - c0, nr = r1 - r0;
-  // Optional max-pooling so narrow peaks survive when the data is denser than the pixels.
-  let src = data, sCols = cols, sc0 = c0, sr0 = r0;
-  if (pool && (nc > w || nr > h)) {
-    const tc = Math.min(nc, Math.ceil(w)), trr = Math.min(nr, Math.ceil(h));
-    const pooled = new Float32Array(tc * trr).fill(-Infinity);
-    for (let r = 0; r < nr; r++) { const pr = Math.min(trr - 1, Math.floor(r / nr * trr)); for (let c = 0; c < nc; c++) { const pc = Math.min(tc - 1, Math.floor(c / nc * tc)); const v = data[(r0 + r) * cols + c0 + c]; const k = pr * tc + pc; if (v > pooled[k]) pooled[k] = v; } }
-    src = pooled; sCols = tc; sc0 = 0; sr0 = 0; nc = tc; nr = trr;
+  const nc0 = c1 - c0, nr0 = r1 - r0;
+  // Optional max-pooling so narrow peaks survive when the data is denser than the pixels. The
+  // pooled size depends on the destination box, so it is part of the cache key.
+  const doPool = pool && (nc0 > w || nr0 > h);
+  const pc = doPool ? Math.min(nc0, Math.ceil(w)) : 0, pr = doPool ? Math.min(nr0, Math.ceil(h)) : 0;
+  const key = `${dataKey(data)}|${version}|${rows}|${cols}|${c0}|${c1}|${r0}|${r1}|${vmin}|${vmax}|${cmap}|${flipY ? 1 : 0}|${log ? 1 : 0}|${pc}|${pr}`;
+  let ent = hmCache.get(key);
+  if (ent) { hmCache.delete(key); hmCache.set(key, ent); }
+  else { ent = renderHeatmap({ data, rows, cols, vmin, vmax, cmap, flipY, log, c0, r0, nc0, nr0, pc, pr }); hmCache.set(key, ent); hmPixels += ent.px; hmEvict(); }
+  g.save(); g.imageSmoothingEnabled = !nearest; g.drawImage(ent.canvas, x, y, w, h); g.restore();
+}
+
+function renderHeatmap({ data, rows, cols, vmin, vmax, cmap, flipY, log, c0, r0, nc0, nr0, pc, pr }) {
+  let src = data, sCols = cols, sc0 = c0, sr0 = r0, nc = nc0, nr = nr0;
+  if (pc) {
+    const pooled = new Float32Array(pc * pr).fill(-Infinity);
+    for (let r = 0; r < nr0; r++) { const prr = Math.min(pr - 1, Math.floor(r / nr0 * pr)); for (let c = 0; c < nc0; c++) { const pcc = Math.min(pc - 1, Math.floor(c / nc0 * pc)); const v = data[(r0 + r) * cols + c0 + c]; const k = prr * pc + pcc; if (v > pooled[k]) pooled[k] = v; } }
+    src = pooled; sCols = pc; sc0 = 0; sr0 = 0; nc = pc; nr = pr;
   }
   const img = new ImageData(nc, nr); const lut = CMAPS[cmap]; const px = img.data;
   const scale = 1 / ((vmax - vmin) || 1);
   for (let r = 0; r < nr; r++) {
     const rr = flipY ? (sr0 + nr - 1 - r) : (sr0 + r);
+    const rowOff = rr * sCols + sc0, outOff = r * nc;
     for (let c = 0; c < nc; c++) {
-      let v = src[rr * sCols + sc0 + c]; if (log) v = 10 * Math.log10(v + 1e-12);
-      let t = (v - vmin) * scale; t = t < 0 ? 0 : t > 1 ? 1 : t; const i = Math.round(t * 255) * 3, o = (r * nc + c) * 4;
+      let v = src[rowOff + c]; if (log) v = 10 * Math.log10(v + 1e-12);
+      let t = (v - vmin) * scale; t = t < 0 ? 0 : t > 1 ? 1 : t; const i = Math.round(t * 255) * 3, o = (outOff + c) * 4;
       px[o] = lut[i]; px[o + 1] = lut[i + 1]; px[o + 2] = lut[i + 2]; px[o + 3] = 255;
     }
   }
-  const off = heatmap._off || (heatmap._off = document.createElement('canvas')); off.width = nc; off.height = nr; off.getContext('2d').putImageData(img, 0, 0);
-  g.save(); g.imageSmoothingEnabled = !nearest; g.drawImage(off, x, y, w, h); g.restore();
+  const canvas = document.createElement('canvas'); canvas.width = nc; canvas.height = nr;
+  canvas.getContext('2d').putImageData(img, 0, 0);
+  return { canvas, px: nc * nr };
 }
 
 export function axisX(g, { x, y, w, min, max, ticks, label, fmt = v => v, color = '#8b93a3' }) {

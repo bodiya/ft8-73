@@ -17,6 +17,37 @@ npm start            # python3 -m http.server 8765
 # then open http://localhost:8765/
 ```
 
+## Host it
+
+The whole thing is static files, so any static host works with no build and no configuration.
+Every URL the app builds at runtime is resolved against `import.meta.url`, so it runs from a
+domain root or from a project subpath (`https://user.github.io/ft8-for-dummies/`), with or
+without a trailing slash. Nothing needs COOP/COEP headers: there is a module worker but no
+`SharedArrayBuffer`. First load is about 420 KB (the 317 KB example WAV plus the code); the two
+residual WAVs are fetched only when you open stage 4's recorded view.
+
+- **GitHub Pages, no config**: Settings → Pages → Deploy from a branch → `main` / `/ (root)`.
+  `.nojekyll` is committed, so Jekyll leaves the files alone.
+- **GitHub Pages, via Actions**: `.github/workflows/pages.yml` publishes on every push to `main`
+  and on demand. It copies only `index.html`, `src/`, `data/`, `README.md` and `LICENSE`, so
+  `tools/` and the git history are not served.
+- **Netlify / Cloudflare Pages**: connect the repo with no build command and the repo root as the
+  publish directory, or drag the folder in. `_headers` caches `data/` forever and revalidates the
+  code, so a redeploy is picked up without a hard refresh.
+- **Vercel** works too, but it ignores `_headers`; add a `vercel.json` if you want the same cache
+  policy.
+
+The Actions workflow publishes from `main` only. To preview a branch, run it by hand from the
+Actions tab (it has `workflow_dispatch`), or point a Netlify/Cloudflare preview at the branch.
+
+Links carry the view: `#ldpc/heat`, `#sync/causal`, `#passes/recorded` all open on that view, so
+you can send someone straight to the picture you meant.
+
+Browser requirements: ES modules, module workers (Chrome 80, Firefox 114, Safari 15) and Canvas
+2D. `requestIdleCallback` is used for warm-up but falls back to `setTimeout` where it is missing.
+The canvases are fixed-width pixel plots between 1000 and 1060 px, so on a narrow screen the
+panels scroll sideways rather than reflowing.
+
 `npm test` runs the JS decoder on the bundled window from Node and compares against
 wsjtr's decode list (single pass, depth 3: 30 messages, all 18 of wsjtr's pass-1 decodes).
 Other Node checks: `tools/subtract_test.mjs`, `tools/osd_test.mjs`, `tools/pack77_test.mjs`,
@@ -33,15 +64,66 @@ worker and its decodes become the reference overlay on every page.
 | Page | What it shows | Knobs |
 |---|---|---|
 | 0 · Signal | Waterfall of the raw 12 kHz audio, waveform and instantaneous spectrum at the playhead, audio playback at any speed, ground-truth decode boxes by pass | FFT size / hop (time vs frequency resolution), color range, which decoder's boxes |
-| 1 · Coarse sync | The Costas-array sync surface (frequency × time offset), the collapsed sync spectrum, threshold, dedupe → candidate list. Tabs: A slides the template through every lag at one frequency, B slides it across frequency at one lag, C replays the window and re-runs the search on the audio heard so far | noise-floor percentile, threshold, short-lag window, red2, max candidates, dedupe tolerances, search range |
+| 1 · Coarse sync | The Costas-array sync surface (frequency × time offset), the collapsed sync spectrum, threshold, dedupe → candidate list. Three views (`#sync/lag`, `#sync/freq`, `#sync/causal`): slide the template through every lag at one frequency, slide it across frequency at one lag, or replay the window and re-run the search on the audio heard so far | noise-floor percentile, threshold, short-lag window, red2, max candidates, dedupe tolerances, search range |
 | 2 · Candidate | 200 Hz baseband, the three fine-sync searches, and the 79 × 8 tone grid with Costas cells, hard decisions and the decoded tones | time / frequency nudge (deliberate misalignment), depth (sync gate), power vs amplitude |
-| 3 · LDPC | 174 LLRs colored by message field, belief propagation animated per iteration in four views (Tanner graph, circular, iteration × bit reliability heatmap, one check node with its messages), convergence plot, decoded bits and message. Extra tabs: the OSD fallback (reliability sort, information set, flip pool, winning pattern) and a-priori decoding (CQ / MyCall) | LLR set (a–e), amplitude vs power metric, iterations, early stop, LLR scale, added noise, OSD order and source, AP hypothesis |
-| 4 · Subtraction | Tab A: wsjtr's recorded per-pass input audio side by side. Tab B: this JS decoder's own three passes (depth 1 → 2 → 3 with subtraction between) run live in a worker, residuals and decodes per pass as they arrive | frequency zoom |
+| 3 · LDPC | 174 LLRs colored by message field, belief propagation animated per iteration in four views (`#ldpc/tanner`, `#ldpc/circle`, `#ldpc/heat`, `#ldpc/check`), convergence plot, decoded bits and message. Two more views for what happens when BP fails: the OSD fallback (reliability sort, information set, flip pool, winning pattern) and a-priori decoding (CQ / MyCall) | LLR set (a–e), amplitude vs power metric, iterations, early stop, LLR scale, added noise, OSD order and source, AP hypothesis |
+| 4 · Subtraction | Two views: wsjtr's recorded per-pass input audio side by side (`#passes/recorded`), or this JS decoder's own three passes (depth 1 → 2 → 3 with subtraction between) run live in a worker (`#passes/live`) | frequency zoom |
 | E · Encode | Message → 77 bits (annotated fields) → CRC-14 → 174 LDPC bits → 79 Gray-coded tones → GFSK waveform, spectrogram and spectrum; play it, add noise, hand it to the decoder pages | message, audio frequency, SNR |
 
 The transport bar (play / stop / speed / loop / scrub, space toggles play) drives whatever
 the current page animates: audio time on page 0, the template lag sweep on page 1, the
-symbol cursor on page 2, the BP iteration on page 3.
+symbol cursor on page 2, the BP iteration on page 3. Each page with alternative views says
+under its tabs what the clock means there and what to look at.
+
+## Where the time goes
+
+Playback is deliberately cheap: everything that does not move with the clock is computed once
+and cached, and each plot is split into a background canvas plus a transparent overlay that
+holds only the playhead. Measured per-tick cost of the whole subscriber fan-out, headless Chrome
+on one core, before and after that split:
+
+| Page / view | before | after |
+|---|---|---|
+| E · Encode | 407 ms (2 fps: a full spectrogram and a 192 000-point FFT every frame) | 0.1 ms |
+| 1 · Coarse sync, causal reveal | 12.3 ms mean, 41 ms p95 | 0.9 ms mean, 7.7 ms p95 |
+| 0 · Signal | 7.9 ms | 1.0 ms |
+| 1 · Coarse sync, frequency sweep | 5.3 ms | 1.7 ms |
+| 4 · Subtraction | 4.5 ms | 0.1 ms |
+| 1 · Coarse sync, lag sweep | 3.9 ms | 0.1 ms |
+| 3 · LDPC, OSD view | 3.3 ms | 0.03 ms |
+| 2 · Candidate | 0.9 ms | 0.1 ms |
+
+Control handlers had the same problem in a different shape: `input` fires once per pixel of a
+drag and once per keystroke, and each event ran the whole chain behind it synchronously. They are
+now coalesced to at most one run per frame and memoized on the values they depend on. Time the
+main thread is blocked by the burst itself (25 slider steps, or typing a 14-character message):
+
+| Interaction | before | after |
+|---|---|---|
+| E · Encode, typing a message | 12.6 s | 0 ms |
+| 2 · Candidate, dragging the time nudge | 523 ms | 1 ms |
+| 3 · LDPC, dragging the noise sigma | 312 ms | 0 ms |
+| 0 · Signal, dragging the hop slider | 120 ms | 0 ms |
+| E · Encode, returning to the page | 865 ms | 19 ms |
+
+The work moved to load time, tab-entry time or an idle callback: the 192k-point `DecodeContext`
+and the SNR baseline are built during the first idle moment after load, and stage 1's causal view
+precomputes its 84 sync surfaces in about two seconds with a progress readout (freed when you
+leave the page). `src/ui/draw.js` caches rendered heatmaps, so a redraw is one `drawImage`.
+
+The three-pass JS decode is about 15 s of CPU, so when there is already a reference decode list it
+does not run until something needs it: opening stage 4's live view, or asking stage 0 for the
+"this JS decoder" boxes. A visitor who only reads the pages never pays for it. For a WAV you load
+yourself there is no reference list, so it starts immediately.
+
+The landing page is painted before the 317 KB window is fetched and before the front-end DSP runs,
+since it reads neither.
+
+Two DSP kernels were made faster without changing a single output bit (verified by an A/B run
+against the previous implementation over the full sync surface and the FFT sizes in use):
+`syncSurface` precomputes the 7-tone sums each lag would otherwise recompute (2.5x to 4.3x), and
+`fft.js` tabulates its per-level twiddles, drops a redundant modulo from the inner loop and
+reuses its buffers (1.3x to 1.6x).
 
 ## Layout
 
@@ -64,9 +146,14 @@ src/dsp/              the decoder, ported from wsjtr
   worker.js           Web Worker: multi-pass decode with subtraction
   pipeline.js         decodeCandidate(): everything above, returning a full trace
 src/ui/               app shell, transport clock, drawing helpers, control builders
+  app.js              state, #page/view routing, data loading, worker wiring, idle warm-up
+  draw.js             colormaps, cached heatmap renderer, axes, line plots
+  controls.js         sliders/selects/canvases, layers() for background+overlay plots, tab bars
 src/vis/              one module per page
 data/                 the example window (raw + wsjtr's pass-2/pass-3 residuals) and its decode lists
 tools/                Node test harness and a CDP smoke test
+.github/workflows/    GitHub Pages deploy
+.nojekyll, _headers   static-hosting bits (see "Host it")
 ```
 
 The example window is 2026-07-26 19:09:30 UTC on 14.074 MHz, the busiest window of the
