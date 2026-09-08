@@ -31,9 +31,14 @@ residual WAVs are fetched only when you open stage 4's recorded view.
 - **GitHub Pages, via Actions**: `.github/workflows/pages.yml` publishes on every push to `main`
   and on demand. It copies only `index.html`, `src/`, `data/`, `README.md` and `LICENSE`, so
   `tools/` and the git history are not served.
-- **Netlify / Cloudflare Pages / Vercel**: connect the repo with no build command and the repo
-  root as the publish directory, or drag the folder in. `_headers` (Netlify and Cloudflare) caches
-  `data/` forever and revalidates the code, so a redeploy is picked up without a hard refresh.
+- **Netlify / Cloudflare Pages**: connect the repo with no build command and the repo root as the
+  publish directory, or drag the folder in. `_headers` caches `data/` forever and revalidates the
+  code, so a redeploy is picked up without a hard refresh.
+- **Vercel** works too, but it ignores `_headers`; add a `vercel.json` if you want the same cache
+  policy.
+
+The Actions workflow publishes from `main` only. To preview a branch, run it by hand from the
+Actions tab (it has `workflow_dispatch`), or point a Netlify/Cloudflare preview at the branch.
 
 Links carry the view: `#ldpc/heat`, `#sync/causal`, `#passes/recorded` all open on that view, so
 you can send someone straight to the picture you meant.
@@ -79,13 +84,14 @@ on one core, before and after that split:
 
 | Page / view | before | after |
 |---|---|---|
-| E · Encode | 407 ms (2 fps: a full spectrogram and a 192 000-point FFT every frame) | 0.2 ms |
-| 1 · Coarse sync, causal reveal | 12.3 ms mean, 41 ms p95 | 1.3 ms mean |
-| 0 · Signal | 7.9 ms | 1.1 ms |
-| 1 · Coarse sync, lag sweep | 3.9 ms | 0.1 ms |
+| E · Encode | 407 ms (2 fps: a full spectrogram and a 192 000-point FFT every frame) | 0.1 ms |
+| 1 · Coarse sync, causal reveal | 12.3 ms mean, 41 ms p95 | 0.9 ms mean, 7.7 ms p95 |
+| 0 · Signal | 7.9 ms | 1.0 ms |
+| 1 · Coarse sync, frequency sweep | 5.3 ms | 1.7 ms |
 | 4 · Subtraction | 4.5 ms | 0.1 ms |
-| 3 · LDPC, OSD view | 3.3 ms | 0.1 ms |
-| 2 · Candidate | 0.9 ms | 0.2 ms |
+| 1 · Coarse sync, lag sweep | 3.9 ms | 0.1 ms |
+| 3 · LDPC, OSD view | 3.3 ms | 0.03 ms |
+| 2 · Candidate | 0.9 ms | 0.1 ms |
 
 Control handlers had the same problem in a different shape: `input` fires once per pixel of a
 drag and once per keystroke, and each event ran the whole chain behind it synchronously. They are
@@ -101,10 +107,17 @@ main thread is blocked by the burst itself (25 slider steps, or typing a 14-char
 | E · Encode, returning to the page | 865 ms | 19 ms |
 
 The work moved to load time, tab-entry time or an idle callback: the 192k-point `DecodeContext`
-and the SNR baseline are built during the first idle moment after load, the background JS decode
-waits for idle when there is already a reference decode list, and stage 1's causal view
+and the SNR baseline are built during the first idle moment after load, and stage 1's causal view
 precomputes its 84 sync surfaces in about two seconds with a progress readout (freed when you
 leave the page). `src/ui/draw.js` caches rendered heatmaps, so a redraw is one `drawImage`.
+
+The three-pass JS decode is about 15 s of CPU, so when there is already a reference decode list it
+does not run until something needs it: opening stage 4's live view, or asking stage 0 for the
+"this JS decoder" boxes. A visitor who only reads the pages never pays for it. For a WAV you load
+yourself there is no reference list, so it starts immediately.
+
+The landing page is painted before the 317 KB window is fetched and before the front-end DSP runs,
+since it reads neither.
 
 Two DSP kernels were made faster without changing a single output bit (verified by an A/B run
 against the previous implementation over the full sync surface and the FFT sizes in use):

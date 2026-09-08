@@ -30,7 +30,7 @@ function syncAudio(app) {
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); root.textContent = ''; this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const p = st.params; app.clock.setDuration(app.duration);
     root.append(el('h1', null, '0 · The signal'));
     root.append(el('p', 'blurb', `This is the whole decoder input: ${app.duration.toFixed(1)} s of audio sampled at 12 kHz. Each FT8 transmission is 79 tones, 160 ms each, spaced 6.25 Hz — about 50 Hz wide and 12.64 s long. Boxes show where the reference decoder eventually found signals (pass 1 = blue, 2 = green, 3 = yellow, cross-sequence A7 = purple). Press play to hear it; slow it down and the pitch drops with it, but the structure stays visible. Change the FFT size to trade frequency resolution for time resolution: the sync search uses 1920 samples zero-padded to 3840, for 3.125 Hz bins two per tone.`));

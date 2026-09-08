@@ -24,8 +24,9 @@ export function candidateTable(parent, app, onpick) {
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); root.textContent = ''; this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const p = st.p; app.clock.setDuration(79 * 0.16);
+    app.clockFormat = () => `symbol ${curSym()} of 78`;
     if (!app.selected) app.select(app.candidates[0]);
     root.append(el('h1', null, '2 · One candidate: baseband, fine sync, and the tone grid'));
     root.append(el('p', 'blurb', 'A candidate is just (frequency, DT, score). To read its tones the decoder takes a 192 000-point FFT of the whole window, cuts out a ~62 Hz slice around the candidate frequency, tapers the edges and inverse-FFTs it into 200 Hz complex baseband: 32 samples per symbol, carrier at DC, everything else on the band filtered away. Then a coherent matched filter for the three Costas arrays refines the start time in 5 ms steps (±50 ms) and the frequency in 0.5 Hz steps (±2.5 Hz), the slice is re-cut at the refined frequency and time is refined again (±20 ms). Finally each of the 79 symbols is a 32-point FFT whose first 8 bins are the 8 tones. That 79 × 8 grid is what the rest of the decoder sees. Play to step through the symbols; drag the nudge sliders to misalign the grid on purpose.'));

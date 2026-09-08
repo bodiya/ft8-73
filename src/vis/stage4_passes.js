@@ -35,13 +35,14 @@ async function loadRecorded(app) {
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); root.textContent = ''; this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const p = st.p; app.clock.setDuration(app.duration);
     invalidate(app);
     const hasRecorded = app.name === '260726_190930';
     const want = app.tabFor('passes', VIEWS.map(v => v[0]));
     if (want) st.mode = want;
     if (!hasRecorded) st.mode = 'live';
+    app.canonicalTab(st.mode);
     root.append(el('h1', null, '4 · Subtraction and passes: the same band, three times'));
     root.append(el('p', 'blurb', 'Once a message is decoded the decoder knows exactly what was transmitted, so it re-synthesizes the 79-tone GFSK waveform, estimates its complex amplitude against the received audio with a low-pass filtered correlation, and subtracts it. Whatever was hiding underneath is now visible to the next pass, which re-runs the coarse sync from scratch on the residual. Zoom on 1500–1600 Hz: the strong KY9L at 1551 Hz is subtracted after pass 1, and two signals inside its footprint (1543 and 1555 Hz) only become candidates afterwards.'));
     const row = el('div', 'row'); root.append(row);
@@ -132,7 +133,7 @@ export default {
     }));
     if (st.mode === 'live') app.ensureJsDecoder();
     refresh();
-    this.setTab = (id) => { if (!id || id === st.mode) return; if (id === 'recorded' && !hasRecorded) return; st.mode = id; tabs.set(id); if (id === 'live') app.ensureJsDecoder(); refresh(); };
+    this.setTab = (id) => { if (!id || !VIEWS.some(v => v[0] === id) || (id === 'recorded' && !hasRecorded)) { app.canonicalTab(st.mode); return; } if (id === st.mode) return; st.mode = id; tabs.set(id); if (id === 'live') app.ensureJsDecoder(); refresh(); };
   },
   setTab: null,
   unmount() { for (const u of st.unsubs) u(); st.unsubs = []; this.setTab = null; },

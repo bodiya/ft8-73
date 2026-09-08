@@ -40,6 +40,7 @@ export const app = {
   selected: null,       // selected candidate {freq, dt, score, ...}
   listeners: new Set(), _jobId: 0, worker: null, name: '260726_190930', jsPassInputs: [], mycallBits: null,
   page: 'home', tab: null,   // current route: #<page> or #<page>/<tab>
+  clockFormat: null,         // pages set this: the clock means something different on each
   asset, idle,
   status(msg) { document.getElementById('loadstatus').textContent = msg; },
   emit(kind) { for (const fn of this.listeners) fn(kind); },
@@ -73,14 +74,19 @@ export const app = {
     // Without one it is the only reference there is, so it starts now.
     if (this.truth.wsjtr && this.truth.wsjtr.length) this.warm(); else this.runJsDecoder();
   },
-  /** Precompute the expensive shared objects while the browser is idle, so no page pays for them. */
+  /**
+   * Precompute the expensive shared objects while the browser is idle, so no page pays for them.
+   * Deliberately does NOT start the JS decoder: that is ~15 s of CPU nobody asked for, and with a
+   * reference decode list in hand only stage 4 and the "this JS decoder" overlay need it. Both
+   * call ensureJsDecoder().
+   */
   warm() {
     if (this._warmScheduled) return; this._warmScheduled = true;
     idle(() => {
       this._warmScheduled = false; this._warming = true;
       try { this.getCtx(); } catch (e) { console.warn('warm ctx', e); }
       this._warming = false;
-      idle(() => { this.getBaseline().catch(() => { }); idle(() => this.ensureJsDecoder(), 6000); }, 3000);
+      idle(() => this.getBaseline().catch(() => { }), 3000);
     }, 800);
   },
   /** Start the background 3-pass JS decode unless it has already run or is running. */
@@ -88,7 +94,7 @@ export const app = {
   /** Run the JS decoder (multi-pass when subtraction is available) in a worker; fills truth.js. */
   runJsDecoder(passes = 3, depths = [1, 2, 3]) {
     if (this.worker) this.worker.terminate();
-    this.jsPassInputs = []; this.truth.js = [];
+    this.workerError = null; this.jsPassInputs = []; this.truth.js = [];
     const w = this.worker = new Worker(new URL('../dsp/worker.js', import.meta.url), { type: 'module' });
     const id = ++this._jobId; const label = this.name || 'window';
     w.onmessage = ev => { const m = ev.data; if (m.id !== id) return;
@@ -96,7 +102,7 @@ export const app = {
       if (m.type === 'passInput') { this.jsPassInputs[m.pass - 1] = m.audio; this.emit('jspass'); }
       if (m.type === 'pass' || m.type === 'done') { this.truth.js = m.decodes; this.emit('jsdecodes'); }
       if (m.type === 'done') { this.status(`${label}: JS decoder found ${m.decodes.length} messages`); w.terminate(); if (this.worker === w) this.worker = null; } };
-    w.onerror = e => { this.status('JS decoder error: ' + e.message); };
+    w.onerror = e => { this.workerError = e.message || 'worker failed to start'; this.status('JS decoder error: ' + this.workerError); if (this.worker === w) this.worker = null; this.emit('jsdecodes'); };
     w.postMessage({ id, audio: this.audio, params: { ...this.syncParams, mycallBits: this.mycallBits || null }, passes, depths });
   },
   /** Reference decode list: wsjtr's when we have it for this audio, else the JS decoder's own. */
@@ -107,7 +113,19 @@ export const app = {
    * Switch the current page's view. The view id lives in the hash (#ldpc/heat) so a link lands on
    * the exact view, and the last view per page is remembered for when the hash names none.
    */
-  setTab(id) { store.set('tab:' + this.page, id || ''); location.hash = '#' + this.page + (id ? '/' + id : ''); },
+  setTab(id) { this.canonicalTab(id); if (current && current.setTab) current.setTab(this.tab); },
+  /**
+   * Make the hash name the view that is actually on screen. Called both when a tab is picked and
+   * when a page resolves an unknown or absent id to a real view, so a shared link always shows the
+   * recipient what the sender was looking at. replaceState, not location.hash: picking a view is
+   * not a navigation, and Back should leave the page rather than walk six LDPC views.
+   */
+  canonicalTab(id) {
+    this.tab = id || null;
+    store.set('tab:' + this.page, id || '');
+    const want = '#' + this.page + (id ? '/' + id : '');
+    if (location.hash !== want) history.replaceState(null, '', want);
+  },
   /** The view this page should open with: the one in the URL, else the last one used, else null. */
   tabFor(page, valid) {
     const want = this.page === page ? this.tab : null;
@@ -129,7 +147,7 @@ $('scrub').oninput = e => clock.seek(+e.target.value * clock.duration);
 clock.subscribe((c, kind) => {
   $('btn-play').textContent = c.playing ? '❚❚' : '▶';
   if (kind !== 'seek') $('scrub').value = c.duration ? c.t / c.duration : 0;
-  $('clock-readout').textContent = c.t.toFixed(2) + ' s';
+  $('clock-readout').textContent = app.clockFormat ? app.clockFormat(c.t, c) : c.t.toFixed(2) + ' s';
 });
 // rAF stops while the tab is hidden and the clock is clamped, but WebAudio keeps playing. On
 // return, tell the pages to re-seek their audio so the playhead and the sound agree again.
@@ -164,12 +182,14 @@ async function route(force = false) {
   const token = ++routeToken;
   const [id, tab] = (location.hash || '#home').slice(1).split('/');
   const s = STAGES.find(x => x.id === id) || STAGES[0];
+  if (id && id !== s.id) history.replaceState(null, '', '#' + s.id);   // hash named a page that does not exist
   const samePage = !force && current && app.page === s.id;
   app.page = s.id; app.tab = tab || null;
   for (const a of nav.children) a.classList.toggle('active', a.dataset.id === s.id);
   // A view change inside the same page is not a navigation: keep the mounted page and let it swap.
   if (samePage && current.setTab) { current.setTab(app.tab); return; }
   if (current && current.unmount) current.unmount();
+  app.clockFormat = null;
   clock.pause();
   const root = $('stage'); root.innerHTML = '';
   const mod = await s.load();
@@ -182,14 +202,22 @@ window.addEventListener('hashchange', () => route());
 // ---- load data ----
 (async () => {
   app.status('loading example window…');
-  const [wav, truth] = await Promise.all([loadWav(asset('data/260726_190930.wav')), fetch(asset('data/260726_190930.decodes.json')).then(r => r.json())]);
+  // Start both fetches, then paint. The landing page reads neither the 317 KB window nor the
+  // ~200 ms of front-end DSP that follows it, and stage pages already know how to show "loading…"
+  // and mount themselves on the 'ready' event.
+  const wavP = loadWav(asset('data/260726_190930.wav'));
+  const truthP = fetch(asset('data/260726_190930.decodes.json')).then(r => r.json());
+  await route(true);
+  const truth = await truthP;
   truth.js = truth.js || [];
-  app.exampleAudio = wav.samples; app.exampleTruth = truth;
+  app.exampleTruth = truth; app.truth = truth;
+  app.emit('truth');
+  const wav = await wavP;
+  app.exampleAudio = wav.samples;
   app.status('computing spectrogram + sync surface…');
-  await new Promise(r => setTimeout(r, 10));
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
   app.ready = true;
   app.setAudio(wav.samples, '260726_190930', truth);
   app.status('');
   app.emit('ready');
-  route(true);
 })().catch(e => { app.status('could not load: ' + e.message); console.error(e); });

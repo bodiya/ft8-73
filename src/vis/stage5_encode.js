@@ -154,6 +154,7 @@ export default {
       st.gain.gain.value = p.volume; const s = st.audioCtx.createBufferSource(); s.buffer = st.buf; s.loop = c.loop; s.playbackRate.value = c.speed; s.connect(st.gain); s.start(0, Math.min(c.t, st.buf.duration - 0.01)); st.src = s;
     }
     app.clock.setDuration(15);
+    app.clockFormat = t => `${t.toFixed(2)} s · symbol ${curSym()}`;
     st.unsubs.push(app.clock.subscribe((c, kind) => { drawOverlays(); if (['play', 'pause', 'seek', 'speed'].includes(kind)) syncAudio(); }));
     encode();
   },

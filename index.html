@@ -12,7 +12,9 @@
 <!-- The window is 317 KB and is the last thing in the critical chain (html, app.js and its module
      graph, then this). Preloading it overlaps the download with module evaluation. -->
 <link rel="modulepreload" href="src/ui/app.js">
+<link rel="modulepreload" href="src/vis/home.js">
 <link rel="preload" href="data/260726_190930.wav" as="fetch" crossorigin>
+<link rel="preload" href="data/260726_190930.decodes.json" as="fetch" crossorigin>
 </head>
 <body>
 <header id="topbar">
@@ -29,6 +31,12 @@
   <span id="clock-readout">0.00 s</span>
 </div>
 <main id="stage"></main>
+<footer id="colophon">
+  <a href="https://github.com/bodiya/ft8-for-dummies">source</a> ·
+  ports of <a href="https://github.com/bodiya/wsjtr">wsjtr</a>, itself a port of
+  <a href="https://wsjt.sourceforge.io/">WSJT-X</a> by K1JT and the WSJT Development Group ·
+  <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPLv3</a>
+</footer>
 <script>
 if (location.protocol === 'file:') {
   document.getElementById('loadstatus').textContent = 'not served over HTTP';

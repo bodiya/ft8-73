@@ -19,8 +19,8 @@ const CAPTIONS = {
   circle: ['one belief-propagation iteration per half second.', 'the same graph without the left-to-right bias: edge colors show which checks are still arguing.'],
   heat: ['one iteration per half second; the white box marks the row you are on.', 'the whole run at once. A clean decode goes blue-and-orange within a few rows; a failing one stays mottled.'],
   check: ['one iteration per half second.', 'the arithmetic itself: five numbers per bit, and how one confident wrong bit poisons every message this check sends.'],
-  osd: ['nothing here. OSD is one shot, not an iteration.', 'where the 91 most reliable bits fall, and which of the least reliable ones the winning pattern had to flip.'],
-  ap: ['nothing here. This is a second BP run with 32 bits forced.', 'the 32 yellow bars in the lower plot, and whether forcing them turns a failure into a decode.'],
+  osd: ['still steps the BP iteration in the panels below, but this view does not depend on it: OSD is one shot.', 'where the 91 most reliable bits fall, and which of the least reliable ones the winning pattern had to flip.'],
+  ap: ['still steps the BP iteration in the panels below. This view is a second, separate BP run with 32 bits forced.', 'the 32 yellow bars in the lower plot, and whether forcing them turns a failure into a decode.'],
 };
 function gauss(rng) { let u = 0, v = 0; while (!u) u = rng(); while (!v) v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
 function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -31,9 +31,10 @@ const bitColor = (v, m) => { const a = Math.min(1, Math.abs(v) / m); return v < 
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); root.textContent = ''; this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const p = st.p;
     const want = app.tabFor('ldpc', VIEWS.map(v => v[0])); if (want) st.view = want;
+    app.canonicalTab(st.view);
     if (!app.selected) app.select(app.candidates[0]);
     root.append(el('h1', null, '3 · From tone magnitudes to bits: LLRs and LDPC belief propagation'));
     root.append(el('p', 'blurb', 'The 58 data symbols carry 174 bits: 3 per symbol, Gray-coded so that adjacent tones differ in one bit. For each bit the decoder does not decide 0 or 1; it computes a log-likelihood ratio: (largest tone magnitude among tones where that bit is 1) minus (largest where it is 0), normalized to unit variance and scaled by 2.83. Positive means "probably 0". Those 174 LLRs feed a (174,91) LDPC code: 91 message bits (77 payload + 14 CRC) plus 83 parity bits, where each parity check says "these 6 or 7 bits XOR to zero". Belief propagation repeatedly lets each check tell each of its bits what the other bits imply, and each bit sum up what it hears. The candidate is decoded when all 83 checks are satisfied and the CRC-14 matches. Press play to step through iterations; add noise to the LLRs to see how much margin there is, then look at the OSD and AP tabs for what the decoder tries when BP gives up.'));
@@ -88,6 +89,7 @@ export default {
       st.bp = bpDecodeTrace(st.llr, { maxIter: p.maxIter, earlyStop: p.earlyStop });
       st._osd = null; st._ap = null; st._heat = null;
       const n = st.bp.iterations.length; app.clock.setDuration(Math.max(1, n) * 0.5); app.clock.seek(app.clock.duration - 0.001);
+      app.clockFormat = () => `iteration ${curIter()} of ${st.bp.iterations.length - 1}`;
       drawAll();
     }
     const curIter = () => Math.min(st.bp.iterations.length - 1, Math.floor(app.clock.t / 0.5));
@@ -248,7 +250,7 @@ export default {
     }));
     st.unsubs.push(app.on(k => { if (k === 'select') { run(); renderTable(); } if (k === 'sync') renderTable(); }));
     layoutView(); run();
-    this.setTab = (id) => { if (!id || id === st.view || !VIEWS.some(v => v[0] === id)) return; st.view = id; layoutView(); drawAll(); };
+    this.setTab = (id) => { if (!id || !VIEWS.some(v => v[0] === id)) { app.canonicalTab(st.view); return; } if (id === st.view) return; st.view = id; layoutView(); drawAll(); };
   },
   setTab: null,
   unmount() { for (const u of st.unsubs) u(); st.unsubs = []; this.setTab = null; },

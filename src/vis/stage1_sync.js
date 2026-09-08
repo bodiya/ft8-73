@@ -21,20 +21,21 @@ const LADDER_STEP = 4;   // spectrogram rows per causal step (4 rows = one symbo
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); root.textContent = ''; this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const P = app.syncParams, V = st.view;
     const want = app.tabFor('sync', MODES.map(m => m[0])); if (want) st.mode = want;
+    app.canonicalTab(st.mode);
     root.append(el('h1', null, '1 · Coarse sync: finding candidates with the Costas arrays'));
-    root.append(el('p', 'blurb', 'Every FT8 transmission carries the same 7-tone Costas pattern [3 1 4 0 6 5 2] three times: at symbols 0, 36 and 72. The decoder computes a spectrogram with 3.125 Hz bins and 40 ms steps (2 bins per tone, 4 rows per symbol) and, for every start frequency and every start time (lag), sums the power in the 21 cells where the Costas tones should be, divided by the mean power in the other 6 tone slots of those same symbols. That ratio is the sync score. The surface below is that score for every frequency bin × 125 lags (±2.48 s). Collapse it over lag (keeping the best lag in a ±0.52 s window) and you get the sync spectrum; divide by its 40th percentile so "1.0" means "typical noise", threshold, then dedupe nearby hits → the candidate list. The three views on the right animate the same computation three ways.'));
+    root.append(el('p', 'blurb', 'Every FT8 transmission carries the same 7-tone Costas pattern [3 1 4 0 6 5 2] three times: at symbols 0, 36 and 72. The decoder computes a spectrogram with 3.125 Hz bins and 40 ms steps (2 bins per tone, 4 rows per symbol) and, for every start frequency and every start time (lag), sums the power in the 21 cells where the Costas tones should be, divided by the mean power in the other 6 tone slots of those same symbols. That ratio is the sync score. The surface below is that score for every frequency bin × 125 lags (±2.48 s). Collapse it over lag (keeping the best lag in a ±0.52 s window) and you get the sync spectrum; divide by its 40th percentile so "1.0" means "typical noise", threshold, then dedupe nearby hits → the candidate list. The three views above animate the same computation three ways.'));
     const row = el('div', 'row'); root.append(row);
     const ctl = el('div', 'controls panel'); row.append(ctl);
     const main = el('div'); row.append(main);
+    const tabs = tabbar(main, MODES, st.mode, id => app.setTab(id));
+    const cap = caption(main);
     const specP = panel(main, 'Sync spectrum: best score per frequency bin ÷ noise floor'); const [cvSb, cvS] = layers(specP, 1000, 190);
     const surfP = panel(main, 'Sync surface: score vs frequency (→) and time offset DT (↓)'); const [cvUb, cvU] = layers(surfP, 1000, 380);
     const hover = el('div', 'stats', ' '); surfP.append(hover); const lg = el('div', 'legend'); lg.innerHTML = '<span>○ white = kept candidate (purple = found via the full-lag red2 search)</span><span>○ colored ring = reference decode (blue p1, green p2, yellow p3, purple A7)</span><span>lighter band = the short-lag window</span>'; surfP.append(lg);
     const side = el('div', 'controls'); side.style.maxWidth = '460px'; side.style.minWidth = '460px'; row.append(side);
-    const tabs = tabbar(side, MODES, st.mode, id => app.setTab(id));
-    const cap = caption(side);
     const tmplP = panel(side, 'The template'); const cvT = canvas(tmplP, 430, 380); const tinfo = el('div', 'stats'); tmplP.append(tinfo);
     const auxP = panel(side, 'Score along the sweep'); const cvA = canvas(auxP, 430, 150); const ainfo = el('div', 'note'); auxP.append(ainfo);
     const stats = panel(side, 'Counts'); const statsTxt = el('div', 'stats'); stats.append(statsTxt);
@@ -70,6 +71,9 @@ export default {
       else { app.clock.setDuration(app.duration); app.clock.seek(0); }
       auxP.hidden = st.mode === 'lag';
       cap.set(...CAPTIONS[st.mode]);
+      app.clockFormat = st.mode === 'lag' ? () => `lag ${curLag()} · DT ${((curLag() - 0.5) * 0.04).toFixed(2)} s`
+        : st.mode === 'freq' ? () => `${app.surf.freqs[curFreqBin()].toFixed(1)} Hz`
+          : () => `heard ${(causalRows() * 0.04).toFixed(2)} s of ${app.duration.toFixed(1)} s`;
     }
     const curLag = () => st.mode === 'lag' ? Math.max(-JZ, Math.min(JZ, Math.floor(app.clock.t / app.clock.duration * (2 * JZ + 1)) - JZ)) : (st.focus ? st.focus.lag : 0);
     const curFreqBin = () => { const s = app.surf; if (st.mode !== 'freq') return st.focus ? st.focus.bin : 0; const [f0, f1] = fr(); const f = f0 + app.clock.t / app.clock.duration * (f1 - f0); return Math.max(0, Math.min(s.nb - 1, Math.round((f - s.freqs[0]) / s.df))); };
@@ -233,7 +237,7 @@ export default {
     if (st.focus) V.center = app.surf.freqs[st.focus.bin];
     setupMode(); drawAll();
     if (st.mode === 'causal') buildLadder();
-    this.setTab = (id) => { if (!id || id === st.mode || !MODES.some(m => m[0] === id)) return; st.mode = id; tabs.set(id); setupMode(); drawAll(); if (id === 'causal') buildLadder(); else st.ladderToken++; };
+    this.setTab = (id) => { if (!id || !MODES.some(m => m[0] === id)) { app.canonicalTab(st.mode); return; } if (id === st.mode) return; st.mode = id; tabs.set(id); setupMode(); drawAll(); if (id === 'causal') buildLadder(); else st.ladderToken++; };
   },
   setTab: null,
   // The causal ladder is ~60 MB of sync surfaces. It rebuilds in about two seconds with a
