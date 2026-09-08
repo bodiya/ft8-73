@@ -1,4 +1,6 @@
 import { el } from '../ui/controls.js';
+
+let off = null;
 export default {
   mount(root, app) {
     root.innerHTML = `
@@ -32,7 +34,7 @@ Then two views of what happens when BP fails:
 <a href="#passes/live">this decoder, live</a>, which works on any window you load.</div>
 
 <h2>The example window</h2>
-<p class="blurb">${app.truth ? app.truth.window + ', ' + app.truth.band : ''}. Recorded during the HamX captures; wsjtr decoded 51 messages here in 3 passes (WSJT-X: 52). The ground-truth decode lists are overlaid throughout so you can see which knobs find or lose real signals. The 13.5 s recording starts at the top of the 15 s slot minus 0.5 s, so a signal with DT = 0 begins 0.5 s into the file.</p>
+<p class="blurb"><span id="ex-window"></span>Recorded during the HamX captures; wsjtr decoded 51 messages here in 3 passes (WSJT-X: 52). The ground-truth decode lists are overlaid throughout so you can see which knobs find or lose real signals. The 13.5 s recording starts at the top of the 15 s slot minus 0.5 s, so a signal with DT = 0 begins 0.5 s into the file.</p>
 <p class="blurb">The "open WAV" button in the top bar loads your own recording of one FT8 slot (any sample rate; it is resampled to 12 kHz). The JS decoder then runs three passes in the background and its decodes become the reference overlay.</p>
 <h2>Not ported</h2>
 <ul class="note">
@@ -40,6 +42,10 @@ Then two views of what happens when BP fails:
 <li>Field Day / RTTY / EU VHF message packing is ported but not exercised in the UI.</li>
 </ul>
 </div>`;
+    // The page now paints before the decode list has arrived, so fill this line in when it does.
+    const fill = () => { const e = root.querySelector('#ex-window'); if (e && app.truth && app.truth.window) e.textContent = app.truth.window + ', ' + app.truth.band + '. '; };
+    fill();
+    off = app.on(k => { if (k === 'truth' || k === 'ready') fill(); });
   },
-  unmount() {},
+  unmount() { if (off) { off(); off = null; } },
 };
