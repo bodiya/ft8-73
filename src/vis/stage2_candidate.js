@@ -1,9 +1,13 @@
 // Stage 2: one candidate -> baseband -> fine sync -> the 79x8 tone grid.
+//
+// The grid and the baseband envelope depend only on the selected candidate and the nudge
+// controls, so they are drawn once per decode into background layers. The transport clock moves
+// a one-symbol cursor, which is all the overlay draws.
 import { decodeCandidate } from '../dsp/pipeline.js';
 import { COSTAS, GRAY_MAP_INV, costasTone, isSyncSymbol } from '../dsp/constants.js';
 import { binMag, binPower } from '../dsp/finesync.js';
 import { NP2 } from '../dsp/downsample.js';
-import { slider, select, checkbox, el, panel, canvas } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, layers } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, passColor, linePlot } from '../ui/draw.js';
 
 const st = { p: { dtNudge: 0, freqNudge: 0, power: false, depth: 3, showBits: false }, trace: null, unsubs: [] };
@@ -28,8 +32,8 @@ export default {
     const row = el('div', 'row'); root.append(row);
     const ctl = el('div', 'controls panel'); row.append(ctl);
     const main = el('div'); main.style.flex = '1'; row.append(main);
-    const gridP = panel(main, 'Tone grid: 79 symbols (→) × 8 tones (↑). Orange = expected Costas tone, dot = strongest tone, green = tone of the decoded message where it differs'); const cvG = canvas(gridP, 1000, 230);
-    const bbP = panel(main, 'Baseband envelope |x(t)| at 200 Hz with the symbol boundaries'); const cvB = canvas(bbP, 1000, 100);
+    const gridP = panel(main, 'Tone grid: 79 symbols (→) × 8 tones (↑). Orange = expected Costas tone, dot = strongest tone, green = tone of the decoded message where it differs'); const [cvG, cvGo] = layers(gridP, 1000, 230);
+    const bbP = panel(main, 'Baseband envelope |x(t)| at 200 Hz with the symbol boundaries'); const [cvB, cvBo] = layers(bbP, 1000, 100);
     const curves = el('div', 'row'); main.append(curves);
     const c1P = panel(curves, 'Fine sync, step 1: time search ±10 samples (5 ms each)'); const cv1 = canvas(c1P, 310, 150);
     const c2P = panel(curves, 'Step 2: frequency tweak ±2.5 Hz'); const cv2 = canvas(c2P, 310, 150);
@@ -39,8 +43,8 @@ export default {
 
     slider(ctl, { label: 'time nudge (after fine sync)', min: -32, max: 32, step: 1, value: p.dtNudge, fmt: v => `${v} smp = ${(v * 5)} ms`, oninput: v => { p.dtNudge = v; run(); } });
     slider(ctl, { label: 'frequency nudge (after fine sync)', min: -8, max: 8, step: 0.25, value: p.freqNudge, fmt: v => v.toFixed(2) + ' Hz', oninput: v => { p.freqNudge = v; run(); } });
-    checkbox(ctl, { label: 'show power |x|² instead of magnitude', value: p.power, onchange: v => { p.power = v; drawGrid(); } });
-    checkbox(ctl, { label: 'label cells with Gray-decoded 3-bit values', value: p.showBits, onchange: v => { p.showBits = v; drawGrid(); } });
+    checkbox(ctl, { label: 'show power |x|² instead of magnitude', value: p.power, onchange: v => { p.power = v; drawGridBg(); drawOverlays(); } });
+    checkbox(ctl, { label: 'label cells with Gray-decoded 3-bit values', value: p.showBits, onchange: v => { p.showBits = v; drawGridBg(); drawOverlays(); } });
     select(ctl, { label: 'depth (sync gate strictness)', options: [[1, '1: need nsync > 8'], [2, '2: need nsync > 8'], [3, '3: nsync > 6 (amp) / > 7 (pow)']], value: p.depth, onchange: v => { p.depth = +v; run(); } });
     ctl.append(el('div', 'note', 'nsync counts how many of the 21 Costas symbols have their expected tone as the strongest bin. Below the gate the candidate is abandoned before any LDPC work. The nudges are applied after the decoder\'s own refinement, so they show what would happen if fine sync had landed there.'));
     const goto = el('div', 'note'); goto.innerHTML = '<a href="#ldpc" style="color:var(--accent)">→ take these tones to stage 3 (LLRs + LDPC)</a>'; ctl.append(goto);
@@ -49,12 +53,12 @@ export default {
       const tr = st.trace; if (tr.result) app.getBaseline().then(b => { if (st.trace !== tr) return; const xb = b.mod.xbaseFromSbaseDb(b.sbaseDb, tr.freq); const { xsig, xnoi } = b.mod.signalAndNoisePower(tr.bins, tr.result.tones); const v = b.mod.computeXsnrDb(tr.syncQuality.nsync, xsig, xnoi, xb); st.snrBase = v ? Math.round(Math.max(-25, v.snr)) : null; drawInfo(); }); }
     const L = 48, T = 6;
     function curSym() { return Math.min(78, Math.floor(app.clock.t / 0.16)); }
-    function drawGrid() {
+
+    function drawGridBg() {
       const g = cvG.g, tr = st.trace; clear(cvG); if (!tr) return; const W = cvG.w - L - 8, H = cvG.h - T - 26; const cw = W / 79, ch = H / 8;
       const data = new Float32Array(79 * 8); let vals = []; for (let s = 0; s < 79; s++) for (let t = 0; t < 8; t++) { const v = p.power ? binPower(tr.bins, s, t) : binMag(tr.bins, s, t); data[(7 - t) * 79 + s] = v; vals.push(v); }
       vals.sort((a, b) => a - b); const vmax = vals[Math.floor(vals.length * 0.985)] || 1;
       heatmap(g, { data, rows: 8, cols: 79, x: L, y: T, w: W, h: H, vmin: 0, vmax, cmap: 'viridis', nearest: true });
-      const sym = curSym();
       for (let s = 0; s < 79; s++) {
         const x = L + s * cw; const ct = costasTone(s);
         if (ct >= 0) { g.strokeStyle = '#ff8c42'; g.lineWidth = 1.2; g.strokeRect(x + 0.5, T + (7 - ct) * ch + 0.5, cw - 1, ch - 1); }
@@ -62,21 +66,28 @@ export default {
         if (tr.result && tr.result.tones[s] !== ht) { g.strokeStyle = '#3ddc97'; g.lineWidth = 1.5; g.strokeRect(x + 1.5, T + (7 - tr.result.tones[s]) * ch + 1.5, cw - 3, ch - 3); }
         if (p.showBits && !isSyncSymbol(s)) text(g, GRAY_MAP_INV[ht].toString(2).padStart(3, '0'), x + cw / 2, T + H + 2, { color: '#8b93a3', align: 'center', font: '8px monospace' });
       }
-      g.strokeStyle = '#ff5c5c'; g.lineWidth = 1.5; g.strokeRect(L + sym * cw, T, cw, H);
       for (const s0 of [0, 36, 72]) { g.fillStyle = 'rgba(255,140,66,0.15)'; g.fillRect(L + s0 * cw, T, 7 * cw, H); }
       axisY(g, { x: L, y: T, h: H, min: -0.5, max: 7.5, ticks: [0, 1, 2, 3, 4, 5, 6, 7], fmt: v => 'tone ' + v });
       if (!p.showBits) axisX(g, { x: L, y: T + H, w: W, min: -0.5, max: 78.5, ticks: [0, 7, 36, 43, 72, 78], fmt: v => 'sym ' + v });
-      text(g, `symbol ${sym}: ${isSyncSymbol(sym) ? 'Costas sync, expected tone ' + costasTone(sym) : 'data'}, strongest tone ${tr.hardTones[sym]}` + (tr.result ? `, decoded tone ${tr.result.tones[sym]}` : ''), L + W, T + 2, { align: 'right', bg: 'rgba(0,0,0,0.6)' });
     }
-    function drawBaseband() {
+    function drawBasebandBg() {
       const g = cvB.g, tr = st.trace; clear(cvB); if (!tr) return; const W = cvB.w - L - 8, H = cvB.h - T - 22; const cd = tr.cd1;
       const xs = [], ys = []; let m = 0; for (let i = 0; i < NP2; i++) { const v = Math.hypot(cd.re[i], cd.im[i]); xs.push(i); ys.push(v); if (v > m) m = v; }
       linePlot(g, { xs, ys, x: L, y: T, w: W, h: H, xmin: 0, xmax: NP2, ymin: 0, ymax: m * 1.05, color: '#4ea1ff', width: 0.8 });
       const sx = i => L + i / NP2 * W;
       for (let s = 0; s <= 79; s++) { const i = tr.ibest2 + s * 32; vline(g, sx(i), T, H, s % 36 === 0 || s === 79 || s === 43 || s === 7 ? '#ff8c42' : 'rgba(255,255,255,0.12)'); }
       for (const s0 of [0, 36, 72]) { g.fillStyle = 'rgba(255,140,66,0.18)'; g.fillRect(sx(tr.ibest2 + s0 * 32), T, sx(tr.ibest2 + (s0 + 7) * 32) - sx(tr.ibest2 + s0 * 32), H); }
-      vline(g, sx(tr.ibest2 + curSym() * 32 + 16), T, H, '#ff5c5c');
       axisX(g, { x: L, y: T + H, w: W, min: 0, max: NP2 / 200, ticks: ticks(0, NP2 / 200, 7), fmt: v => v + ' s' });
+    }
+    /** The symbol cursor on both plots: everything the clock touches. */
+    function drawOverlays() {
+      const tr = st.trace; const g = cvGo.g; clear(cvGo); const gb = cvBo.g; clear(cvBo); if (!tr) return;
+      const sym = curSym();
+      const W = cvG.w - L - 8, H = cvG.h - T - 26, cw = W / 79;
+      g.strokeStyle = '#ff5c5c'; g.lineWidth = 1.5; g.strokeRect(L + sym * cw, T, cw, H);
+      text(g, `symbol ${sym}: ${isSyncSymbol(sym) ? 'Costas sync, expected tone ' + costasTone(sym) : 'data'}, strongest tone ${tr.hardTones[sym]}` + (tr.result ? `, decoded tone ${tr.result.tones[sym]}` : ''), L + W, T + 2, { align: 'right', bg: 'rgba(0,0,0,0.6)' });
+      const W2 = cvB.w - L - 8, H2 = cvB.h - T - 22;
+      vline(gb, L + (tr.ibest2 + sym * 32 + 16) / NP2 * W2, T, H2, '#ff5c5c');
     }
     function drawCurve(cv, pts, xkey, best, xfmt) {
       const g = cv.g; clear(cv); const Lx = 40, W = cv.w - Lx - 8, H = cv.h - T - 24; const xs = pts.map(q => q[xkey]), ys = pts.map(q => q.sync); const ymax = Math.max(...ys) * 1.05 || 1;
@@ -93,8 +104,8 @@ export default {
         + (tr.result ? `decoded: <b>${tr.result.message.text}</b> (type ${tr.result.message.type}, LLR set ${tr.result.metric}/${tr.result.pass} via ${tr.result.how}${tr.result.ap ? ' with AP' + tr.result.ap : ''}, BP iterations ${tr.result.bp.iterations.length - 1}, hard errors ${tr.result.hardErrors}/174, SNR ${st.snrBase != null ? '<b>' + st.snrBase + ' dB</b> (baseline method, as wsjtr reports)' : ''}; tone-vs-off-tone estimate ${tr.snrEstimate.toFixed(0)} dB)` : `<b>no decode</b> at depth ${p.depth} (${tr.attempts.filter(a => !a.skipped).length} attempts)`)
         + `<br>hard tones: <span class="bits">${Array.from(tr.hardTones).join(' ')}</span>`;
     }
-    function drawAll() { const tr = st.trace; if (!tr) return; drawGrid(); drawBaseband(); drawCurve(cv1, tr.fineSync.timeCurve, 'idt', tr.fineSync.ibest, v => ((v - Math.round((tr.cand.dt + 0.5) * 200)) * 5) + 'ms'); drawCurve(cv2, tr.fineSync.freqCurve, 'delf', tr.fineSync.delf, v => v + 'Hz'); drawCurve(cv3, tr.timeRefine.curve, 'idt', tr.timeRefine.ibest2 - tr.fineSync.ibest, v => (v * 5) + 'ms'); drawInfo(); renderTable(); }
-    st.unsubs.push(app.clock.subscribe((c, k) => { if (k === 'tick' || k === 'seek') { drawGrid(); drawBaseband(); } }));
+    function drawAll() { const tr = st.trace; if (!tr) return; drawGridBg(); drawBasebandBg(); drawOverlays(); drawCurve(cv1, tr.fineSync.timeCurve, 'idt', tr.fineSync.ibest, v => ((v - Math.round((tr.cand.dt + 0.5) * 200)) * 5) + 'ms'); drawCurve(cv2, tr.fineSync.freqCurve, 'delf', tr.fineSync.delf, v => v + 'Hz'); drawCurve(cv3, tr.timeRefine.curve, 'idt', tr.timeRefine.ibest2 - tr.fineSync.ibest, v => (v * 5) + 'ms'); drawInfo(); renderTable(); }
+    st.unsubs.push(app.clock.subscribe(() => drawOverlays()));
     st.unsubs.push(app.on(k => { if (k === 'select') run(); if (k === 'sync') renderTable(); }));
     run();
   },

@@ -4,7 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FT8 for Dummies</title>
+<meta name="description" content="Interactive visualizations of how an FT8 decoder works, one DSP stage at a time. The real algorithms, running in your browser on a recorded 15 s window.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f1218">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f1218'/%3E%3Crect x='3' y='3' width='2' height='10' fill='%234ea1ff'/%3E%3Crect x='7' y='5' width='2' height='8' fill='%233ddc97'/%3E%3Crect x='11' y='2' width='2' height='11' fill='%23ffd166'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="src/ui/styles.css">
+<!-- The window is 317 KB and is the last thing in the critical chain (html, app.js and its module
+     graph, then this). Preloading it overlaps the download with module evaluation. -->
+<link rel="modulepreload" href="src/ui/app.js">
+<link rel="preload" href="data/260726_190930.wav" as="fetch" crossorigin>
 </head>
 <body>
 <header id="topbar">

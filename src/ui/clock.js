@@ -13,7 +13,10 @@ export class Clock {
   _frame = (now) => {
     if (!this.playing) return;
     if (this._last != null) {
-      this.t += (now - this._last) / 1000 * this.speed;
+      // Clamp the frame delta: rAF stops while the tab is hidden, so on return `now - _last`
+      // can be tens of seconds and the playhead would jump (and desync the audio source).
+      const dt = Math.min(now - this._last, 100);
+      this.t += dt / 1000 * this.speed;
       if (this.t >= this.duration) { if (this.loop) this.t -= this.duration; else { this.t = this.duration; this.pause(); this._emit('tick'); return; } }
     }
     this._last = now; this._emit('tick');

@@ -1,5 +1,12 @@
 // Mixed-radix complex FFT (any length). Split real/imag Float64Arrays.
 // Sizes used by the FT8 pipeline: 3840 (2^8*3*5), 192000 (2^9*3*5^3), 3200 (2^7*5^2), 32.
+//
+// Arithmetic is unchanged from the straightforward version: the same twiddle values from the
+// same table, multiplied and accumulated in the same order, so every output is bit-identical.
+// What changed is bookkeeping: the per-level combine twiddles are tabulated once in plan()
+// instead of being re-derived with an integer modulo inside the innermost loop, the per-call
+// scratch is owned by the plan instead of being allocated at every recursion, and
+// powerSpectrum() reuses its buffers.
 
 const cache = new Map();
 
@@ -17,48 +24,57 @@ function plan(n) {
   // twiddles for the whole size
   const cos = new Float64Array(n), sin = new Float64Array(n);
   for (let i = 0; i < n; i++) { const a = -2 * Math.PI * i / n; cos[i] = Math.cos(a); sin[i] = Math.sin(a); }
-  const p = { n, factors, cos, sin, scratchRe: new Float64Array(n), scratchIm: new Float64Array(n) };
+  // Per-level combine twiddles W_n^{q*s2*m}, r x r per level. `n` shrinks by one factor per level,
+  // so level fi has sub-size nl = n / (f0..f_{fi-1}) and stride tw = n / nl.
+  const levels = []; let nl = n, maxR = 1;
+  for (let fi = 0; fi < factors.length; fi++) {
+    const r = factors[fi], mm = nl / r, tw = n / nl;
+    const cc = new Float64Array(r * r), ss = new Float64Array(r * r);
+    for (let q = 0; q < r; q++) for (let s2 = 0; s2 < r; s2++) { const idx = ((q * s2 * mm) % nl) * tw; cc[q * r + s2] = cos[idx]; ss[q * r + s2] = sin[idx]; }
+    levels.push({ r, m: mm, tw, cc, ss });
+    if (r > maxR) maxR = r;
+    nl = mm;
+  }
+  const p = { n, factors, cos, sin, levels, scratchRe: new Float64Array(n), scratchIm: new Float64Array(n), tRe: new Float64Array(maxR), tIm: new Float64Array(maxR) };
   cache.set(n, p);
   return p;
 }
 
 // Recursive decimation-in-time. out[k] = sum x[j] w^(jk), x read with stride from `inRe/inIm`.
+// tRe/tIm live only inside the combine loop, which never recurses, so one shared pair is enough.
 function rec(p, inRe, inIm, inOff, stride, outRe, outIm, outOff, n, fi, sign) {
   if (n === 1) { outRe[outOff] = inRe[inOff]; outIm[outOff] = inIm[inOff]; return; }
-  const r = p.factors[fi];
-  const m = n / r;
+  const lv = p.levels[fi], r = lv.r, m = lv.m, tw = lv.tw, cc = lv.cc, ss = lv.ss;
   // r sub-transforms of size m
   for (let q = 0; q < r; q++) {
     rec(p, inRe, inIm, inOff + q * stride, stride * r, outRe, outIm, outOff + q * m, m, fi + 1, sign);
   }
   // combine: out[k + s*m] = sum_q W_n^{q(k+s m)} * sub_q[k]
-  const tw = p.n / n; // twiddle index scale
-  const tRe = new Float64Array(r), tIm = new Float64Array(r);
+  const tRe = p.tRe, tIm = p.tIm, cosT = p.cos, sinT = p.sin;
+  const sRe = p.scratchRe, sIm = p.scratchIm;
   for (let k = 0; k < m; k++) {
     for (let q = 0; q < r; q++) {
-      const idx = ((q * k) % n) * tw;
-      const c = p.cos[idx], s = sign * p.sin[idx];
+      const idx = (q * k) * tw;   // q < r and k < m, so q*k < n: the old `% n` was always a no-op
+      const c = cosT[idx], s = sign * sinT[idx];
       const xr = outRe[outOff + q * m + k], xi = outIm[outOff + q * m + k];
       tRe[q] = xr * c - xi * s;
       tIm[q] = xr * s + xi * c;
     }
     for (let s2 = 0; s2 < r; s2++) {
-      let accRe = 0, accIm = 0;
-      for (let q = 0; q < r; q++) {
-        if (q === 0) { accRe += tRe[0]; accIm += tIm[0]; continue; }
-        const idx = ((q * s2 * m) % n) * tw;
-        const c = p.cos[idx], s = sign * p.sin[idx];
+      let accRe = tRe[0], accIm = tIm[0];
+      for (let q = 1; q < r; q++) {
+        const c = cc[q * r + s2], s = sign * ss[q * r + s2];
         accRe += tRe[q] * c - tIm[q] * s;
         accIm += tRe[q] * s + tIm[q] * c;
       }
-      p.scratchRe[outOff + s2 * m + k] = accRe;
-      p.scratchIm[outOff + s2 * m + k] = accIm;
+      sRe[outOff + s2 * m + k] = accRe;
+      sIm[outOff + s2 * m + k] = accIm;
     }
   }
-  for (let i = 0; i < n; i++) { outRe[outOff + i] = p.scratchRe[outOff + i]; outIm[outOff + i] = p.scratchIm[outOff + i]; }
+  for (let i = 0; i < n; i++) { outRe[outOff + i] = sRe[outOff + i]; outIm[outOff + i] = sIm[outOff + i]; }
 }
 
-/** Forward (inverse=false) or inverse (unscaled) FFT. Returns {re, im}. */
+/** Forward (inverse=false) or inverse (unscaled) FFT. Returns {re, im} in freshly allocated arrays. */
 export function fft(re, im, inverse = false) {
   const n = re.length;
   const p = plan(n);
@@ -67,12 +83,32 @@ export function fft(re, im, inverse = false) {
   return { re: outRe, im: outIm };
 }
 
-/** Power spectrum |X|^2 of a real input zero-padded to nfft. Returns Float64Array(nfft/2). */
+// Reusable scratch per FFT size for powerSpectrum. See the contract note on powerSpectrum().
+const psBufs = new Map();
+function psBuf(nfft) {
+  let b = psBufs.get(nfft);
+  if (!b) { b = { re: new Float64Array(nfft), im: new Float64Array(nfft), outRe: new Float64Array(nfft), outIm: new Float64Array(nfft), out: new Float64Array(nfft / 2) }; psBufs.set(nfft, b); }
+  return b;
+}
+
+/**
+ * Power spectrum |X|^2 of a real input zero-padded to nfft. Returns Float64Array(nfft/2).
+ *
+ * The returned array is REUSED on the next call with the same nfft: read or copy it before
+ * calling again. Every caller in this repo consumes it immediately, and this saves four
+ * Float64Array(nfft) allocations per call (the spectrogram makes 337 of these).
+ */
 export function powerSpectrum(x, nfft) {
-  const re = new Float64Array(nfft), im = new Float64Array(nfft);
-  for (let i = 0; i < Math.min(x.length, nfft); i++) re[i] = x[i];
-  const { re: R, im: I } = fft(re, im);
-  const out = new Float64Array(nfft / 2);
+  const b = psBuf(nfft);
+  const re = b.re, im = b.im;
+  const nx = Math.min(x.length, nfft);
+  for (let i = 0; i < nx; i++) re[i] = x[i];
+  if (nx < nfft) re.fill(0, nx);
+  im.fill(0);
+  const p = plan(nfft);
+  const R = b.outRe, I = b.outIm;
+  rec(p, re, im, 0, 1, R, I, 0, nfft, 0, 1);
+  const out = b.out;
   for (let i = 0; i < nfft / 2; i++) out[i] = R[i] * R[i] + I[i] * I[i];
   return out;
 }

@@ -5,12 +5,23 @@ import { bpWithZsum, osdDecode, osdParamsFromDepth } from '../dsp/osd.js';
 import { applyApCq, applyApMyCall, callsignToApBits, AP_CONSTRAINED_BITS } from '../dsp/ap.js';
 import { LLR_PASS_INFO } from '../dsp/llr.js';
 import { unpack77 } from '../dsp/unpack77.js';
-import { slider, select, checkbox, el, panel, canvas, button } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, caption, button } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, linePlot, passColor } from '../ui/draw.js';
 import { candidateTable } from './stage2_candidate.js';
 
 const st = { p: { metric: 'amp', pass: 'a', maxIter: 30, earlyStop: true, noise: 0, scale: 1, edges: true, seed: 1, checkIdx: 0, osdOrder: 2, osdSource: 'zsum1', mycall: 'KC1WIH' }, view: 'tanner', trace: null, llr: null, bp: null, truthCw: null, unsubs: [] };
-const VIEWS = [['tanner', 'A · Tanner graph'], ['circle', 'B · circular'], ['heat', 'C · reliability heatmap'], ['check', 'D · one check node'], ['osd', 'OSD fallback'], ['ap', 'AP (a-priori)']];
+const VIEWS = [['tanner', 'Tanner graph'], ['circle', 'circular'], ['heat', 'reliability heatmap'], ['check', 'one check node'], ['osd', 'OSD fallback'], ['ap', 'a-priori (AP)']];
+// The first four are four renderings of the same belief-propagation run and follow the clock.
+// The last two are different algorithms, tried when BP gives up, and do not depend on the iteration.
+const BP_VIEWS = ['tanner', 'circle', 'heat', 'check'];
+const CAPTIONS = {
+  tanner: ['one belief-propagation iteration per half second.', 'red check squares turning green, and red rings on bits whose hard decision is still wrong.'],
+  circle: ['one belief-propagation iteration per half second.', 'the same graph without the left-to-right bias: edge colors show which checks are still arguing.'],
+  heat: ['one iteration per half second; the white box marks the row you are on.', 'the whole run at once. A clean decode goes blue-and-orange within a few rows; a failing one stays mottled.'],
+  check: ['one iteration per half second.', 'the arithmetic itself: five numbers per bit, and how one confident wrong bit poisons every message this check sends.'],
+  osd: ['nothing here. OSD is one shot, not an iteration.', 'where the 91 most reliable bits fall, and which of the least reliable ones the winning pattern had to flip.'],
+  ap: ['nothing here. This is a second BP run with 32 bits forced.', 'the 32 yellow bars in the lower plot, and whether forcing them turns a failure into a decode.'],
+};
 function gauss(rng) { let u = 0, v = 0; while (!u) u = rng(); while (!v) v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
 function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const FIELDS = [[0, 28, 'f0', 'call 1 (28 bits)'], [28, 29, 'f1', '/R or /P flag'], [29, 57, 'f0', 'call 2 (28 bits)'], [57, 58, 'f1', '/R or /P flag'], [58, 59, 'f1', 'R flag'], [59, 74, 'f2', 'grid or report (15 bits)'], [74, 77, 'f3', 'i3 (message type, 3 bits)'], [77, 91, 'f4', 'CRC-14'], [91, 174, 'f5', 'LDPC parity (83 bits)']];
@@ -22,6 +33,7 @@ export default {
   mount(root, app) {
     if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); return; }
     const p = st.p;
+    const want = app.tabFor('ldpc', VIEWS.map(v => v[0])); if (want) st.view = want;
     if (!app.selected) app.select(app.candidates[0]);
     root.append(el('h1', null, '3 · From tone magnitudes to bits: LLRs and LDPC belief propagation'));
     root.append(el('p', 'blurb', 'The 58 data symbols carry 174 bits: 3 per symbol, Gray-coded so that adjacent tones differ in one bit. For each bit the decoder does not decide 0 or 1; it computes a log-likelihood ratio: (largest tone magnitude among tones where that bit is 1) minus (largest where it is 0), normalized to unit variance and scaled by 2.83. Positive means "probably 0". Those 174 LLRs feed a (174,91) LDPC code: 91 message bits (77 payload + 14 CRC) plus 83 parity bits, where each parity check says "these 6 or 7 bits XOR to zero". Belief propagation repeatedly lets each check tell each of its bits what the other bits imply, and each bit sum up what it hears. The candidate is decoded when all 83 checks are satisfied and the CRC-14 matches. Press play to step through iterations; add noise to the LLRs to see how much margin there is, then look at the OSD and AP tabs for what the decoder tries when BP gives up.'));
@@ -30,7 +42,12 @@ export default {
     const main = el('div'); main.style.flex = '1'; row.append(main);
     const llrP = panel(main, 'Input LLRs (174). Color = field. Red shading = hard decision disagrees with the true codeword'); const cvL = canvas(llrP, 1000, 150);
     const tabs = el('div', 'tabs'); main.append(tabs);
-    for (const [v, label] of VIEWS) { const b = el('button', v === st.view ? 'active' : '', label); b.onclick = () => { st.view = v; for (const x of tabs.children) x.classList.toggle('active', x.textContent === label); layoutView(); drawAll(); }; tabs.append(b); }
+    const tabBtns = new Map();
+    const gA = el('div', 'group'); gA.append(el('span', 'grouplab', 'belief propagation:'));
+    const gB = el('div', 'group'); gB.append(el('span', 'grouplab', 'when BP fails:'));
+    for (const [v, label] of VIEWS) { const b = el('button', v === st.view ? 'active' : '', label); b.dataset.tab = v; b.onclick = () => app.setTab(v); (BP_VIEWS.includes(v) ? gA : gB).append(b); tabBtns.set(v, b); }
+    tabs.append(gA, el('div', 'div'), gB);
+    const cap = caption(main);
     const viewP = panel(main, ' '); const cvV = canvas(viewP, 1000, 330); const vinfo = el('div', 'stats'); viewP.append(vinfo); const vctl = el('div', 'row'); vctl.style.marginTop = '6px'; viewP.append(vctl);
     const r2 = el('div', 'row'); main.append(r2);
     const convP = panel(r2, 'Convergence'); const cvC = canvas(convP, 330, 170);
@@ -59,7 +76,7 @@ export default {
     const apCtl = el('div', 'controls'); apCtl.style.flexDirection = 'row'; apCtl.style.maxWidth = 'none'; apCtl.style.alignItems = 'flex-end';
     const apKind = select(apCtl, { label: 'a-priori hypothesis', options: [['cq', 'CQ: call 1 = CQ, i3 = 1'], ['mycall', 'MyCall: call 1 = my callsign, i3 = 1']], value: 'cq', onchange: () => drawView() });
     const myW = el('div', 'ctl'); myW.innerHTML = '<div class="lab">my callsign</div>'; const myIn = el('input'); myIn.type = 'text'; myIn.value = p.mycall; myIn.oninput = () => { p.mycall = myIn.value.toUpperCase(); drawView(); }; myW.append(myIn); apCtl.append(myW);
-    function layoutView() { vctl.innerHTML = ''; if (st.view === 'check') vctl.append(checkCtl); if (st.view === 'osd') vctl.append(osdCtl); if (st.view === 'ap') vctl.append(apCtl); viewP.querySelector('h3').textContent = { tanner: 'Tanner graph: 174 bit nodes (top, current belief) ↔ 83 parity checks (bottom, red = unsatisfied)', circle: 'Circular layout: bits on the outer ring, checks on the inner ring, edges colored by the check→bit message', heat: 'Belief per bit (columns) per iteration (rows): blue = leaning 0, orange = leaning 1. Below: the 83 checks per iteration', check: 'One parity check and its bits: what it hears, what it tells them', osd: 'Ordered statistics decoding: sort bits by reliability, re-encode from the 91 most reliable, flip a few of the least reliable of those', ap: 'A-priori decoding: overwrite 32 LLRs with a guess about the message, then run BP again' }[st.view]; }
+    function layoutView() { for (const [k, b] of tabBtns) b.classList.toggle('active', k === st.view); cap.set(...(CAPTIONS[st.view] || [])); vctl.innerHTML = ''; if (st.view === 'check') vctl.append(checkCtl); if (st.view === 'osd') vctl.append(osdCtl); if (st.view === 'ap') vctl.append(apCtl); viewP.querySelector('h3').textContent = { tanner: 'Tanner graph: 174 bit nodes (top, current belief) ↔ 83 parity checks (bottom, red = unsatisfied)', circle: 'Circular layout: bits on the outer ring, checks on the inner ring, edges colored by the check→bit message', heat: 'Belief per bit (columns) per iteration (rows): blue = leaning 0, orange = leaning 1. Below: the 83 checks per iteration', check: 'One parity check and its bits: what it hears, what it tells them', osd: 'Ordered statistics decoding: sort bits by reliability, re-encode from the 91 most reliable, flip a few of the least reliable of those', ap: 'A-priori decoding: overwrite 32 LLRs with a guess about the message, then run BP again' }[st.view]; }
 
     function run() { const c = app.selected; if (!c) return; st.trace = decodeCandidate(app.getCtx(), c, { depth: 3, mycallBits: callsignToApBits(p.mycall) }); app.trace = st.trace; st.truthCw = st.trace.result ? st.trace.result.codeword : null; const d = app.truthFor(c); st.truthText = d ? d.message : null; runBP(); }
     function runBP() {
@@ -67,6 +84,7 @@ export default {
       const base = tr.llr[p.metric][p.pass]; const rng = mulberry(p.seed * 7919);
       st.llr = Float64Array.from(base, v => -v * p.scale + (p.noise ? gauss(rng) * p.noise : 0));
       st.bp = bpDecodeTrace(st.llr, { maxIter: p.maxIter, earlyStop: p.earlyStop });
+      st._osd = null; st._ap = null; st._heat = null;
       const n = st.bp.iterations.length; app.clock.setDuration(Math.max(1, n) * 0.5); app.clock.seek(app.clock.duration - 0.001);
       drawAll();
     }
@@ -109,9 +127,14 @@ export default {
     function drawHeat(g) {
       const its = st.bp.iterations; const rows = its.length; const W = cvV.w - L - 8, Hb = Math.round((cvV.h - T - 40) * 0.68), Hc = cvV.h - T - 40 - Hb - 10;
       let m = 0; for (const it of its) for (const v of it.zn) m = Math.max(m, Math.abs(v)); m = m || 1;
-      const data = new Float32Array(rows * N); its.forEach((it, r) => { for (let i = 0; i < N; i++) data[r * N + i] = Math.max(-m, Math.min(m, it.zn[i])); });
+      if (!st._heat || st._heat.bp !== st.bp) {
+        const data = new Float32Array(rows * N); its.forEach((it, r) => { for (let i = 0; i < N; i++) data[r * N + i] = Math.max(-m, Math.min(m, it.zn[i])); });
+        const cdata = new Float32Array(rows * M); its.forEach((it, r) => { const u = new Set(it.unsat); for (let j = 0; j < M; j++) cdata[r * M + j] = u.has(j) ? 1 : 0; });
+        st._heat = { bp: st.bp, data, cdata, m };
+      }
+      const data = st._heat.data;
       heatmap(g, { data, rows, cols: N, x: L, y: T, w: W, h: Hb, vmin: -m, vmax: m, cmap: 'diverging', nearest: true });
-      const cdata = new Float32Array(rows * M); its.forEach((it, r) => { const u = new Set(it.unsat); for (let j = 0; j < M; j++) cdata[r * M + j] = u.has(j) ? 1 : 0; });
+      const cdata = st._heat.cdata;
       heatmap(g, { data: cdata, rows, cols: M, x: L, y: T + Hb + 10, w: W, h: Hc, vmin: 0, vmax: 1, cmap: 'hot', nearest: true });
       const rh = Hb / rows, k = curIter(); g.strokeStyle = '#fff'; g.lineWidth = 1; g.strokeRect(L, T + k * rh, W, rh); g.strokeRect(L, T + Hb + 10 + k * (Hc / rows), W, Hc / rows);
       if (st.truthCw) { const bw = W / N; g.fillStyle = '#ff5c5c'; its.forEach((it, r) => { for (let i = 0; i < N; i++) if (it.hard[i] !== st.truthCw[i]) g.fillRect(L + i * bw + bw / 2 - 0.5, T + r * rh + rh / 2 - 0.5, 1.2, 1.2); }); }
@@ -141,10 +164,17 @@ export default {
       });
       text(g, 'Each outgoing message = 2·atanh( product over the OTHER bits of tanh(their bit→check message / 2) ). One confident wrong bit poisons every message this check sends.', cvV.w / 2, 4, { align: 'center', color: '#8b93a3' });
     }
-    function drawOsd(g) {
+    /** OSD does not depend on the transport clock, so one run is cached per (LLRs, order, source). */
+    function osdRun() {
+      const key = `${p.osdSource}|${p.osdOrder}|${p.maxIter}`;
+      if (st._osd && st._osd.llr === st.llr && st._osd.key === key) return st._osd;
       const src = p.osdSource === 'llr' ? st.llr : (() => { const z = bpWithZsum(st.llr, p.maxIter, 2); return z.saves[p.osdSource === 'zsum1' ? 0 : 1] || z.saves[z.saves.length - 1] || st.llr; })();
       const params = osdParamsFromDepth(p.osdOrder === 0 ? 1 : p.osdOrder === 1 ? 2 : 3, 'default');
-      const r = osdDecode(src, p.osdOrder, params); const t = r.trace; st.osdResult = r;
+      st._osd = { llr: st.llr, key, src, r: osdDecode(src, p.osdOrder, params) };
+      return st._osd;
+    }
+    function drawOsd(g) {
+      const { src, r } = osdRun(); const t = r.trace; st.osdResult = r;
       const W = cvV.w - L - 8, H = cvV.h - T - 70; const order = t.perm || t.reliabilityOrder || []; const n = order.length || N; const bw = W / n;
       let m = 0; for (const v of src) m = Math.max(m, Math.abs(v)); m = m || 1;
       const mrb = new Set(t.mrb || []); const pool = new Set(t.flipPool || []); const swapped = new Set((t.swappedIn || []).map(x => x.bit)); const win = new Set((t.winner && t.winner.flipsCodeword) || []);
@@ -162,8 +192,10 @@ export default {
     function drawAp(g) {
       const mc = callsignToApBits(p.mycall); const useMy = apKind.value === 'mycall';
       if (useMy && !mc) { vinfo.innerHTML = `<b>${p.mycall}</b> is not a standard callsign that fits 28 bits.`; return; }
-      const l2 = useMy ? applyApMyCall(st.llr, mc) : applyApCq(st.llr);
-      const bp2 = bpDecodeTrace(l2, { maxIter: p.maxIter, earlyStop: p.earlyStop });
+      const key = `${useMy ? p.mycall : 'cq'}|${p.maxIter}|${p.earlyStop}`;
+      if (!st._ap || st._ap.llr !== st.llr || st._ap.key !== key) st._ap = { llr: st.llr, key, l2: useMy ? applyApMyCall(st.llr, mc) : applyApCq(st.llr) };
+      if (!st._ap.bp2) st._ap.bp2 = bpDecodeTrace(st._ap.l2, { maxIter: p.maxIter, earlyStop: p.earlyStop });
+      const l2 = st._ap.l2, bp2 = st._ap.bp2;
       const W = cvV.w - L - 8, H = (cvV.h - T - 40) / 2 - 8; const bw = W / N; let m = 0; for (const v of l2) m = Math.max(m, Math.abs(v)); for (const v of st.llr) m = Math.max(m, Math.abs(v)); m = m || 1;
       const forced = new Set(AP_CONSTRAINED_BITS);
       const drawRow = (vals, y, title) => { const y0 = y + H / 2; for (let i = 0; i < N; i++) { const h = vals[i] / m * H / 2; g.fillStyle = forced.has(i) ? '#ffd166' : FIELD_COLORS[fieldOf(i)[2]]; g.fillRect(L + i * bw, Math.min(y0, y0 - h), Math.max(bw - 0.6, 0.5), Math.abs(h)); if (st.truthCw && ((vals[i] < 0 ? 1 : 0) !== st.truthCw[i])) { g.fillStyle = 'rgba(255,92,92,0.35)'; g.fillRect(L + i * bw, y, bw, H); } } hline(g, L, W, y0, '#2a3242'); text(g, title, L + W, y, { align: 'right', bg: 'rgba(0,0,0,0.6)' }); };
@@ -200,11 +232,22 @@ export default {
       html += `<br>Order the decoder tries (depth 3): ${tr.attempts.map(a => a.skipped ? `<span class="pill bad">${a.metric}: ${a.reason}</span>` : `<span class="pill ${a.ok ? 'ok' : ''}">${a.ap ? 'AP' + a.ap + ' ' : ''}${a.metric}/${a.pass} ${a.ok ? '✓ ' + a.how : a.reject ? '✗ ' + a.reject : '✗ bp ' + (a.bp.iterations.length - 1) + ' it' + (a.osd ? ', osd ' + a.osd.attempts.length + '×' : '')}</span>`).join(' ')}`;
       res.innerHTML = html;
     }
-    function drawAll() { if (!st.bp) return; bars(cvL, st.llr); drawView(); drawConv(); drawBits(); drawRes(); renderTable(); }
-    cvV.addEventListener('click', e => { if (st.view !== 'tanner') return; const r = cvV.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; if (Math.abs(y - (cvV.h - 46)) < 10) { p.checkIdx = Math.max(0, Math.min(82, Math.floor((x - 8) / (cvV.w - 16) * M))); checkSl.value = p.checkIdx; st.view = 'check'; for (const b of tabs.children) b.classList.toggle('active', b.textContent.startsWith('D')); layoutView(); drawView(); } });
-    st.unsubs.push(app.clock.subscribe((c, k) => { if (k === 'tick' || k === 'seek') { if (!st.bp) return; drawView(); drawConv(); drawBits(); drawRes(); } }));
+    function drawAll() { if (!st.bp) return; lastIter = -1; bars(cvL, st.llr); drawView(); drawConv(); drawBits(); drawRes(); renderTable(); }
+    cvV.addEventListener('click', e => { if (st.view !== 'tanner') return; const r = cvV.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; if (Math.abs(y - (cvV.h - 46)) < 10) { p.checkIdx = Math.max(0, Math.min(82, Math.floor((x - 8) / (cvV.w - 16) * M))); checkSl.value = p.checkIdx; app.setTab('check'); } });
+    // One BP iteration lasts half a second of clock time, so ~30 of every 31 ticks would redraw
+    // exactly the same picture. Redraw only when the iteration index actually changes, and never
+    // for the two views that do not depend on it at all.
+    let lastIter = -1;
+    st.unsubs.push(app.clock.subscribe(() => {
+      if (!st.bp) return;
+      const it = curIter(); if (it === lastIter) return; lastIter = it;
+      if (BP_VIEWS.includes(st.view)) drawView();
+      drawConv(); drawBits(); drawRes();
+    }));
     st.unsubs.push(app.on(k => { if (k === 'select') run(); if (k === 'sync') renderTable(); }));
     layoutView(); run();
+    this.setTab = (id) => { if (!id || id === st.view || !VIEWS.some(v => v[0] === id)) return; st.view = id; layoutView(); drawAll(); };
   },
-  unmount() { for (const u of st.unsubs) u(); st.unsubs = []; },
+  setTab: null,
+  unmount() { for (const u of st.unsubs) u(); st.unsubs = []; this.setTab = null; },
 };

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 const [hash, out, js] = process.argv.slice(2);
 const port = 9334;
-const chrome = spawn('google-chrome', ['--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${port}`, '--window-size=1500,1100', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(process.env.CHROME || 'google-chrome', ['--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${port}`, '--window-size=1500,1100', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 await sleep(1500);
 const targets = await (await fetch(`http://localhost:${port}/json`)).json();

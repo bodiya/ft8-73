@@ -23,30 +23,69 @@ export function spectrogram(audio) {
 }
 
 /**
+ * Sum of the 7 tone slots starting at bin b in row m: sum over t of data[m][b + 2t], with bins
+ * past the end counting as zero. syncSurface asks for the same (m, b) at all 125 lags, so this
+ * is precomputed once per spectrogram and cached on it. Float64 accumulator in ascending t, so
+ * every sum is bit-identical to the on-the-fly loop it replaces.
+ */
+export function toneSums(spec) {
+  if (spec._tsum) return spec._tsum;
+  const { rows, nbins, data } = spec;
+  const ts = new Float64Array(rows * nbins);
+  for (let m = 0; m < rows; m++) {
+    const base = m * nbins;
+    for (let b = 0; b < nbins; b++) {
+      let s = 0;
+      for (let t = 0; t <= 6; t++) { const k = b + 2 * t; if (k < nbins) s += data[base + k]; }
+      ts[base + b] = s;
+    }
+  }
+  spec._tsum = ts;
+  return ts;
+}
+/** Free the table (5 MB for a 13.5 s window). Worth calling when a spectrogram is kept only for
+ *  display after its one syncSurface call; pointless when the same spec is searched repeatedly. */
+export function dropToneSums(spec) { spec._tsum = null; }
+
+// Scratch for syncCore so the inner loop of syncSurface allocates nothing: [abc, bc, score].
+const _sc = new Float64Array(3);
+/** The Costas score itself. Writes _sc; `ts` is toneSums(spec) or null for the generic path. */
+function syncCore(spec, i, j, jstrt, nssy, nfos, rows, ts) {
+  const nbins = spec.nbins, data = spec.data;
+  let ta = 0, tb = 0, tc = 0, t0a = 0, t0b = 0, t0c = 0;
+  for (let n = 0; n < 7; n++) {
+    const bin = i + nfos * COSTAS[n];
+    const binOk = bin >= 0 && bin < nbins;
+    const m0 = j + jstrt + nssy * n;
+    for (let blk = 0; blk < 3; blk++) {
+      const m = m0 + nssy * 36 * blk;
+      if (m < 0 || m >= rows) continue;
+      const base = m * nbins;
+      const tv = binOk ? data[base + bin] : 0;
+      let sv;
+      if (ts) sv = ts[base + i];
+      else { sv = 0; for (let t = 0; t <= 6; t++) { const b = i + nfos * t; if (b >= 0 && b < nbins) sv += data[base + b]; } }
+      if (blk === 0) { ta += tv; t0a += sv; } else if (blk === 1) { tb += tv; t0b += sv; } else { tc += tv; t0c += sv; }
+    }
+  }
+  const t = ta + tb + tc;
+  const t0 = (t0a + t0b + t0c - t) / 6;
+  const abc = t0 > 0 ? t / t0 : 0;
+  const tbc = tb + tc;
+  const t0bc = (t0b + t0c - tbc) / 6;
+  const bc = t0bc > 0 ? tbc / t0bc : 0;
+  _sc[0] = abc; _sc[1] = bc; _sc[2] = abc > bc ? abc : bc;
+}
+
+/**
  * Costas score at (bin i, lag j). jstrt = nominal start row, nssy = rows per symbol (4), nfos = bins per tone (2).
  * Returns { abc, bc, score } where score = max(abc, bc).
  */
 export function syncAt(spec, i, j, jstrt = 12, nssy = 4, nfos = 2, maxRow = Infinity) {
-  const { nbins, data } = spec; const rows = Math.min(spec.rows, maxRow);
-  let ta = 0, tb = 0, tc = 0, t0a = 0, t0b = 0, t0c = 0;
-  const at = (bin, m) => (bin < 0 || bin >= nbins || m < 0 || m >= rows) ? 0 : data[m * nbins + bin];
-  const sumTones = (m) => { let s = 0; for (let t = 0; t <= 6; t++) s += at(i + nfos * t, m); return s; };
-  for (let n = 0; n < 7; n++) {
-    const m = j + jstrt + nssy * n;
-    const bin = i + nfos * COSTAS[n];
-    if (m >= 0 && m < rows) { ta += at(bin, m); t0a += sumTones(m); }
-    const m2 = m + nssy * 36;
-    if (m2 >= 0 && m2 < rows) { tb += at(bin, m2); t0b += sumTones(m2); }
-    const m3 = m + nssy * 72;
-    if (m3 >= 0 && m3 < rows) { tc += at(bin, m3); t0c += sumTones(m3); }
-  }
-  const t = ta + tb + tc;
-  let t0 = (t0a + t0b + t0c - t) / 6;
-  const abc = t0 > 0 ? t / t0 : 0;
-  const tbc = tb + tc;
-  let t0bc = (t0b + t0c - tbc) / 6;
-  const bc = t0bc > 0 ? tbc / t0bc : 0;
-  return { abc, bc, score: Math.max(abc, bc) };
+  const rows = Math.min(spec.rows, maxRow);
+  const ts = (nfos === 2 && i >= 0 && i < spec.nbins) ? toneSums(spec) : null;
+  syncCore(spec, i, j, jstrt, nssy, nfos, rows, ts);
+  return { abc: _sc[0], bc: _sc[1], score: _sc[2] };
 }
 
 /**
@@ -59,9 +98,10 @@ export function syncSurface(spec, freqMin = 200, freqMax = 4007, dtOffset = 0.5,
   let ib = Math.min(spec.nbins - 1, Math.round(freqMax / spec.df));
   const nb = ib - ia + 1, nl = 2 * JZ + 1;
   const surface = new Float32Array(nl * nb);
+  const rows = Math.min(spec.rows, maxRow), ts = toneSums(spec);
   for (let li = 0; li < nl; li++) {
     const j = li - JZ;
-    for (let bi = 0; bi < nb; bi++) surface[li * nb + bi] = syncAt(spec, ia + bi, j, jstrt, 4, 2, maxRow).score;
+    for (let bi = 0; bi < nb; bi++) { syncCore(spec, ia + bi, j, jstrt, 4, 2, rows, ts); surface[li * nb + bi] = _sc[2]; }
   }
   const lags = Array.from({ length: nl }, (_, li) => (li - JZ));
   const freqs = Array.from({ length: nb }, (_, bi) => (ia + bi) * spec.df);

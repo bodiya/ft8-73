@@ -1,5 +1,5 @@
 // Web Worker: run the JS decoder on a window (multi-pass when subtraction is available) and post compact decodes.
-import { spectrogram, syncSurface, syncHits, dedupeCandidates } from './sync.js';
+import { spectrogram, syncSurface, syncHits, dedupeCandidates, dropToneSums } from './sync.js';
 import { DecodeContext, decodeCandidate } from './pipeline.js';
 
 self.onmessage = async (ev) => {
@@ -13,7 +13,7 @@ self.onmessage = async (ev) => {
     const depth = depths[Math.min(pass, depths.length) - 1] || 1;
     self.postMessage({ id, type: 'passInput', pass, audio: Float32Array.from(work) });
     const spec = spectrogram(work); const surf = syncSurface(spec, params.freqMin, params.freqMax);
-    const hits = syncHits(surf, params); const { kept } = dedupeCandidates(hits.hits, params);
+    const hits = syncHits(surf, params); const { kept } = dedupeCandidates(hits.hits, params); dropToneSums(spec);
     const ctx = new DecodeContext(work);
     let sbase = null; if (baseline) { try { sbase = baseline.spectrumBaselineDb(work, params.freqMin, params.freqMax); } catch (e) { sbase = null; } }
     const newOnes = [];
