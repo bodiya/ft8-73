@@ -15,6 +15,7 @@ origin in a comment. License is GPLv3 (inherited from WSJT-X).
 
 ```bash
 npm start                       # python3 -m http.server 8765 ; open http://localhost:8765/
+npm stop                        # kill a server left on 8765 (npm stop && npm start to restart)
 npm test                        # tools/decode_test.mjs [wav] [depth]: JS decoder vs wsjtr's decode list
 node tools/osd_test.mjs         # OSD / AP port checks
 node tools/subtract_test.mjs    # subtraction + baseline SNR checks vs wsjtr's residual WAV
