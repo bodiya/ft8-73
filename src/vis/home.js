@@ -5,7 +5,8 @@ export default {
   mount(root, app) {
     root.innerHTML = `
 <div class="home">
-<h1>FT8 for Dummies — the decoder, one stage at a time</h1>
+<h1>Seven Threes</h1>
+<p class="sub">Seven tones, three times, and everything after.</p>
 <p class="blurb">Every page runs the real algorithms (ported from the <b>wsjtr</b> Rust decoder, itself a port of WSJT-X) in your browser on one recorded 15 s window of 20 m FT8. Knobs change the algorithm live; the transport bar at the top slows down, speeds up, scrubs and loops whatever the current page animates. Space toggles play.</p>
 <h2>The pipeline</h2>
 <div class="card"><a href="#signal">0 · Signal</a> — what the sound card hands the decoder: 12 kHz audio, a spectrogram, and where the 51 signals in this window actually are. Listen to it at any speed.</div>

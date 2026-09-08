@@ -7,7 +7,7 @@ import { clearHeatmapCache } from './draw.js';
 import { FS } from '../dsp/constants.js';
 
 // Every runtime URL is resolved against this module, not against the document, so the app works
-// unchanged at a domain root, in a project subpath (https://user.github.io/ft8-for-dummies/), and
+// unchanged at a domain root, in a project subpath (https://user.github.io/ft8-73/), and
 // with or without a trailing slash on the directory.
 const asset = (p) => new URL('../../' + p, import.meta.url).href;
 

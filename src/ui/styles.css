@@ -43,6 +43,7 @@ table.list tr:hover { background:#1c2330; cursor:pointer; }
 .bits .wrong { background:#552; }
 .pill { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; background:var(--line); color:var(--ink); margin-right:6px; }
 .pill.ok { background:#1e5c3a; } .pill.bad { background:#5c1e1e; }
+.home .sub { color:var(--muted); font-size:15px; margin:-2px 0 12px; }
 .home ul { line-height:1.6; }
 .home .card { margin-bottom:10px; }
 .home .card a { color:var(--accent); font-weight:600; text-decoration:none; }

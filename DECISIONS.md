@@ -97,8 +97,8 @@ subtraction rounds. If exact per-round residuals matter, add a debug dump to wsj
 The app is static and hosts anywhere with no build. Runtime URLs resolve against
 `import.meta.url` (previously they were document-relative, which would have broken the worker on
 a subpath without a trailing slash). `.nojekyll`, `_headers` and `.github/workflows/pages.yml`
-are committed; see "Host it" in the README. Verified in headless Chrome from `/ft8-for-dummies/`,
-`/ft8-for-dummies` and `/ft8-for-dummies/index.html#ldpc/heat`, including the module worker.
+are committed; see "Host it" in the README. Verified in headless Chrome from `/ft8-73/`,
+`/ft8-73` and `/ft8-73/index.html#ldpc/heat`, including the module worker.
 
 ## 7. Performance work not taken, with numbers
 

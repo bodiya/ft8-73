@@ -1,4 +1,4 @@
-# FT8 for Dummies
+# Seven Threes
 
 Interactive, browser-based visualizations of how an FT8 decoder works, one stage of the
 DSP pipeline at a time. Every page runs the real algorithms in JavaScript on a recorded
@@ -21,7 +21,7 @@ npm start            # python3 -m http.server 8765
 
 The whole thing is static files, so any static host works with no build and no configuration.
 Every URL the app builds at runtime is resolved against `import.meta.url`, so it runs from a
-domain root or from a project subpath (`https://user.github.io/ft8-for-dummies/`), with or
+domain root or from a project subpath (`https://user.github.io/ft8-73/`), with or
 without a trailing slash. Nothing needs COOP/COEP headers: there is a module worker but no
 `SharedArrayBuffer`. First load is about 420 KB (the 317 KB example WAV plus the code); the two
 residual WAVs are fetched only when you open stage 4's recorded view.
