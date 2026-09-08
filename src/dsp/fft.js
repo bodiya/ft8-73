@@ -6,7 +6,7 @@
 // What changed is bookkeeping: the per-level combine twiddles are tabulated once in plan()
 // instead of being re-derived with an integer modulo inside the innermost loop, the per-call
 // scratch is owned by the plan instead of being allocated at every recursion, and
-// powerSpectrum() reuses its buffers.
+// powerSpectrum() reuses its working buffers.
 
 const cache = new Map();
 
@@ -83,21 +83,17 @@ export function fft(re, im, inverse = false) {
   return { re: outRe, im: outIm };
 }
 
-// Reusable scratch per FFT size for powerSpectrum. See the contract note on powerSpectrum().
+// Reusable input/output scratch per FFT size. The four Float64Array(nfft) these replace were the
+// expensive allocations (the spectrogram makes 337 calls); the small result array is still fresh
+// each time, because sharing it would make powerSpectrum unsafe to hold across calls for a 2% win.
 const psBufs = new Map();
 function psBuf(nfft) {
   let b = psBufs.get(nfft);
-  if (!b) { b = { re: new Float64Array(nfft), im: new Float64Array(nfft), outRe: new Float64Array(nfft), outIm: new Float64Array(nfft), out: new Float64Array(nfft / 2) }; psBufs.set(nfft, b); }
+  if (!b) { b = { re: new Float64Array(nfft), im: new Float64Array(nfft), outRe: new Float64Array(nfft), outIm: new Float64Array(nfft) }; psBufs.set(nfft, b); }
   return b;
 }
 
-/**
- * Power spectrum |X|^2 of a real input zero-padded to nfft. Returns Float64Array(nfft/2).
- *
- * The returned array is REUSED on the next call with the same nfft: read or copy it before
- * calling again. Every caller in this repo consumes it immediately, and this saves four
- * Float64Array(nfft) allocations per call (the spectrogram makes 337 of these).
- */
+/** Power spectrum |X|^2 of a real input zero-padded to nfft. Returns Float64Array(nfft/2). */
 export function powerSpectrum(x, nfft) {
   const b = psBuf(nfft);
   const re = b.re, im = b.im;
@@ -108,7 +104,7 @@ export function powerSpectrum(x, nfft) {
   const p = plan(nfft);
   const R = b.outRe, I = b.outIm;
   rec(p, re, im, 0, 1, R, I, 0, nfft, 0, 1);
-  const out = b.out;
+  const out = new Float64Array(nfft / 2);
   for (let i = 0; i < nfft / 2; i++) out[i] = R[i] * R[i] + I[i] * I[i];
   return out;
 }

@@ -91,6 +91,8 @@ these or the app gets slow again:
   192k-point `DecodeContext` and the SNR baseline on the first idle callback and then starts the
   background JS decode; `app.ensureJsDecoder()` starts that decode on demand. Stage 1 builds its
   causal ladder in chunked `setTimeout` work with a progress readout.
+- **`powerSpectrum()` returns a fresh array but reuses its working buffers**, so the result is
+  safe to hold; do not reintroduce a shared output buffer, it was worth 2%.
 - **DSP changes must be output-identical.** Both kernel speedups (`toneSums` in `sync.js`, the
   twiddle tables in `fft.js`) were verified by diffing every value against the previous
   implementation, not just by running `npm test`. Do the same: import both versions in a scratch
