@@ -100,6 +100,52 @@ a subpath without a trailing slash). `.nojekyll`, `_headers` and `.github/workfl
 are committed; see "Host it" in the README. Verified in headless Chrome from `/ft8-for-dummies/`,
 `/ft8-for-dummies` and `/ft8-for-dummies/index.html#ldpc/heat`, including the module worker.
 
+## 7. Performance work not taken, with numbers
+
+An audit of every page and both kernel modules turned these up after the optimization pass. They
+are recorded with the measurements that were taken so nobody has to re-derive them. **The numbers
+below came from the audit's own prototypes and have not been independently re-verified here**, so
+treat "bit-identical" as a claim to check, not a fact, before merging any of them.
+
+Decode time (the worker path, not playback), measured on the bundled window in Node 22: front end
+310 ms (spectrogram 193, toneSums 14, syncSurface 23, hits+dedupe 9, DecodeContext 71), then
+2632 ms to decode 200 candidates at depth 3, of which OSD is 1175, llrPasses 448, downsample 199,
+BP 132, extractSymbolBins 58, fine sync 38. One subtraction is 382-501 ms.
+
+- **OSD's Gaussian elimination works one byte per bit.** Bit-packing the GF(2) matrix into Uint32
+  words was measured at 5.65x on the largest single item in the decode. Claimed bit-identical
+  against 120 real LLR vectors.
+- **Both LLR sets are built for every candidate before the sync gate that 70% of them fail**, and
+  `llrPasses` is called twice per candidate. Making `llr` lazy in `pipeline.js` would skip most of
+  the 448 ms. Careful: stage 3 needs both sets even for a gated candidate, so only the worker's
+  `lite: true` path can skip them.
+- **fft.js still uses the generic r x r combine**, which is 16 complex multiplies per radix-4
+  butterfly. Unrolling radix 2/3/4/5 and dropping the scratch copy-back was measured at a further
+  large win, and `fft()` still allocates two output arrays per call (68% of the 32-point call cost;
+  an `fftInto(out)` variant would remove it).
+- **Stage 1's causal ladder recomputes all 84 sync surfaces from scratch** (about 2 s of chunked
+  background work). Six running accumulators over R would make it roughly 85x less work and stay
+  bit-identical, because for a fixed (bin, lag) the terms arrive in the same order either way. It
+  would not reduce the ~60 MB the ladder holds.
+- **Subtraction recomputes the filtered amplitude it already had** for the winning offset: 2 of
+  the 8 FFTs of 180 000 points are avoidable.
+- **A real-input FFT is worth another 1.87x on `powerSpectrum` but is NOT bit-identical.** That is
+  a deliberate decision about faithfulness, not a free win, so it was left alone.
+- **Do not swap `Math.hypot` for `sqrt` in `llrPasses`.** It is 10.6x faster and changes 38% of
+  the LLR inputs.
+
+On the UI side:
+
+- `heatmap()` puts `colRange` in its cache key, so every step of a frequency-zoom drag re-renders
+  the visible cells instead of cropping a cached full-width image with a 9-argument `drawImage`.
+  Stage 4 drops to about 30 fps during such a drag (three panels); every other page holds 60. The
+  crop only works for the non-pooled callers, since pooling depends on the visible range, and it
+  would make color-slider drags render the full width instead of the zoomed slice. Precomputing
+  the dB transform per spectrogram (58% of the pixel loop for the `log: true` callers) helps both
+  drags but costs about 2.6 MB per pass.
+- The clock emits to every subscriber on every animation frame. Pages now guard themselves, so
+  this is only wasted dispatch, but a 120 Hz display does twice the work for nothing.
+
 ## How to resume
 
 ```bash

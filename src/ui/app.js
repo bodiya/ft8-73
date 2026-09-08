@@ -3,6 +3,7 @@ import { loadWav } from '../dsp/wav.js';
 import { spectrogram, syncSurface, syncHits, dedupeCandidates } from '../dsp/sync.js';
 import { DecodeContext } from '../dsp/pipeline.js';
 import { Clock } from './clock.js';
+import { clearHeatmapCache } from './draw.js';
 import { FS } from '../dsp/constants.js';
 
 // Every runtime URL is resolved against this module, not against the document, so the app works
@@ -56,6 +57,11 @@ export const app = {
   select(c) { this.selected = c; this.emit('select'); },
   /** Replace the audio (Float32Array @ 12 kHz) and recompute everything. */
   setAudio(samples, name, truth) {
+    // Stop any decode still running on the previous window: its handler would happily write its
+    // decodes and pass audio into the new window's state.
+    if (this.worker) { this.worker.terminate(); this.worker = null; }
+    this._jobId++;
+    clearHeatmapCache();   // every cached render refers to the old window's arrays
     this.audio = samples.length > 180000 ? samples.slice(0, 180000) : samples; this.duration = this.audio.length / FS; this.name = name;
     this.truth = truth || { window: name, band: '', wsjtr: [], wsjtx: [], js: [] };
     this.spec = null; this.surf = null; this.ctx = null; this.selected = null; this.trace = null; this._baseline = null;
@@ -125,6 +131,9 @@ clock.subscribe((c, kind) => {
   if (kind !== 'seek') $('scrub').value = c.duration ? c.t / c.duration : 0;
   $('clock-readout').textContent = c.t.toFixed(2) + ' s';
 });
+// rAF stops while the tab is hidden and the clock is clamped, but WebAudio keeps playing. On
+// return, tell the pages to re-seek their audio so the playhead and the sound agree again.
+document.addEventListener('visibilitychange', () => { if (!document.hidden && clock.playing) clock._emit('seek'); });
 document.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; if (e.code === 'Space') { e.preventDefault(); clock.toggle(); } if (e.code === 'Home') clock.stop(); });
 
 // ---- load your own WAV ----
@@ -150,7 +159,9 @@ import('../dsp/resample.js').then(({ resampleTo12k }) => {
 let current = null;
 const nav = $('nav');
 for (const s of STAGES) { const a = document.createElement('a'); a.href = '#' + s.id; a.textContent = s.title; a.dataset.id = s.id; nav.append(a); }
+let routeToken = 0;
 async function route(force = false) {
+  const token = ++routeToken;
   const [id, tab] = (location.hash || '#home').slice(1).split('/');
   const s = STAGES.find(x => x.id === id) || STAGES[0];
   const samePage = !force && current && app.page === s.id;
@@ -162,6 +173,7 @@ async function route(force = false) {
   clock.pause();
   const root = $('stage'); root.innerHTML = '';
   const mod = await s.load();
+  if (token !== routeToken) return;   // a newer navigation won while this module was loading
   current = mod.default;
   current.mount(root, app);
 }

@@ -32,7 +32,7 @@ function hmEvict() {
     const e = hmCache.get(k); hmCache.delete(k); hmPixels -= e.px;
   }
 }
-/** Drop everything (used when a page unmounts, so stale window data does not pin memory). */
+/** Drop everything. Called from app.setAudio(): every entry keys off the old window's arrays. */
 export function clearHeatmapCache() { hmCache.clear(); hmPixels = 0; }
 export function heatmapCacheStats() { return { entries: hmCache.size, pixels: hmPixels }; }
 
