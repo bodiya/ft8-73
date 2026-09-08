@@ -35,11 +35,15 @@ export default {
     const specP = panel(main, 'Sync spectrum: best score per frequency bin ÷ noise floor'); const [cvSb, cvS] = layers(specP, 1000, 190);
     const surfP = panel(main, 'Sync surface: score vs frequency (→) and time offset DT (↓)'); const [cvUb, cvU] = layers(surfP, 1000, 380);
     const hover = el('div', 'stats', ' '); surfP.append(hover); const lg = el('div', 'legend'); lg.innerHTML = '<span>○ white = kept candidate (purple = found via the full-lag red2 search)</span><span>○ colored ring = reference decode (blue p1, green p2, yellow p3, purple A7)</span><span>lighter band = the short-lag window</span>'; surfP.append(lg);
-    const side = el('div', 'controls'); side.style.maxWidth = '460px'; side.style.minWidth = '460px'; row.append(side);
+    // The template column goes beside the candidate list, not beside the plots: as a third column of
+    // .row it needed 280 + 1067 + 460 + gaps, more than the 1468 px main gets at its max width, so it
+    // always wrapped to a line of its own at the far left, under the controls.
+    const bottom = el('div', 'row'); main.append(bottom);
+    const listP = panel(bottom, 'Candidate list (after dedupe, strongest first)'); listP.style.flex = '1 1 460px'; const listWrap = el('div', 'scroll'); listP.append(listWrap);   // fixed share of the row so the template column does not slide sideways as the causal list fills
+    const side = el('div', 'controls'); side.style.maxWidth = '460px'; side.style.minWidth = '460px'; bottom.append(side);
     const tmplP = panel(side, 'The template'); const cvT = canvas(tmplP, 430, 380); const tinfo = el('div', 'stats'); tmplP.append(tinfo);
     const auxP = panel(side, 'Score along the sweep'); const cvA = canvas(auxP, 430, 150); const ainfo = el('div', 'note'); auxP.append(ainfo);
     const stats = panel(side, 'Counts'); const statsTxt = el('div', 'stats'); stats.append(statsTxt);
-    const listP = panel(main, 'Candidate list (after dedupe, strongest first)'); const listWrap = el('div', 'scroll'); listP.append(listWrap);
 
     const rerun = () => { st.causalCache.clear(); app.recomputeSync(); };
     slider(ctl, { label: 'noise-floor percentile', min: 0.05, max: 0.95, step: 0.05, value: P.basePct, fmt: v => (v * 100).toFixed(0) + 'th', oninput: v => { P.basePct = v; rerun(); } });
