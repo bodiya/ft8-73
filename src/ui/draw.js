@@ -21,7 +21,7 @@ export function cmapColor(name, v) { const l = CMAPS[name]; const i = Math.max(0
  * costs one drawImage. Callers that build a fresh array every frame will miss every time: they
  * should memoize the array themselves (see the page modules).
  */
-const HM_MAX_ENTRIES = 24, HM_MAX_PIXELS = 24e6;
+const HM_MAX_ENTRIES = 24, HM_MAX_PIXELS = 8e6;   // 8M px of RGBA is ~32 MB of backing store
 const hmCache = new Map();          // insertion-ordered, re-inserted on hit => LRU
 let hmPixels = 0;
 const hmIds = new WeakMap(); let hmNextId = 1;

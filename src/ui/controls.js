@@ -24,6 +24,21 @@ export function checkbox(parent, { label, value, onchange }) {
   w.append(inp, label); parent.append(w); Object.defineProperty(w, 'value', { get: () => inp.checked, set: v => { inp.checked = v; } });
   return w;
 }
+/**
+ * Coalesce repeated calls into at most one run per animation frame, last arguments win.
+ * Slider `input` events fire far faster than the work behind them (a spectrogram rebuild, a full
+ * decode, a re-synthesis), and without this a drag queues one of those per event. When the work
+ * itself is longer than a frame this self-throttles to "run, then run again with the latest
+ * value", which is what a drag should do.
+ */
+export function coalesce(fn) {
+  let raf = 0, args = null;
+  return (...a) => {
+    args = a;
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; const x = args; args = null; fn(...x); });
+  };
+}
 export function button(parent, label, onclick) { const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', onclick); parent.append(b); return b; }
 export function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 export function panel(parent, title, cls = '') { const p = el('div', 'panel ' + cls); if (title) p.append(el('h3', null, title)); parent.append(p); return p; }

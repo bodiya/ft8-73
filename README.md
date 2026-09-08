@@ -87,6 +87,19 @@ on one core, before and after that split:
 | 3 · LDPC, OSD view | 3.3 ms | 0.1 ms |
 | 2 · Candidate | 0.9 ms | 0.2 ms |
 
+Control handlers had the same problem in a different shape: `input` fires once per pixel of a
+drag and once per keystroke, and each event ran the whole chain behind it synchronously. They are
+now coalesced to at most one run per frame and memoized on the values they depend on. Time the
+main thread is blocked by the burst itself (25 slider steps, or typing a 14-character message):
+
+| Interaction | before | after |
+|---|---|---|
+| E · Encode, typing a message | 12.6 s | 0 ms |
+| 2 · Candidate, dragging the time nudge | 523 ms | 1 ms |
+| 3 · LDPC, dragging the noise sigma | 312 ms | 0 ms |
+| 0 · Signal, dragging the hop slider | 120 ms | 0 ms |
+| E · Encode, returning to the page | 865 ms | 19 ms |
+
 The work moved to load time, tab-entry time or an idle callback: the 192k-point `DecodeContext`
 and the SNR baseline are built during the first idle moment after load, the background JS decode
 waits for idle when there is already a reference decode list, and stage 1's causal view

@@ -5,7 +5,7 @@ import { bpWithZsum, osdDecode, osdParamsFromDepth } from '../dsp/osd.js';
 import { applyApCq, applyApMyCall, callsignToApBits, AP_CONSTRAINED_BITS } from '../dsp/ap.js';
 import { LLR_PASS_INFO } from '../dsp/llr.js';
 import { unpack77 } from '../dsp/unpack77.js';
-import { slider, select, checkbox, el, panel, canvas, caption, button } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, caption, coalesce, button } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, linePlot, passColor } from '../ui/draw.js';
 import { candidateTable } from './stage2_candidate.js';
 
@@ -31,7 +31,7 @@ const bitColor = (v, m) => { const a = Math.min(1, Math.abs(v) / m); return v < 
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); return; }
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const p = st.p;
     const want = app.tabFor('ldpc', VIEWS.map(v => v[0])); if (want) st.view = want;
     if (!app.selected) app.select(app.candidates[0]);
@@ -58,11 +58,11 @@ export default {
     select(ctl, { label: 'metric', options: [['amp', 'amplitude |bin|'], ['pow', 'power |bin|²']], value: p.metric, onchange: v => { p.metric = v; runBP(); } });
     select(ctl, { label: 'LLR set (symbol grouping)', options: [['a', 'a: single symbol'], ['b', 'b: 2-symbol blocks'], ['c', 'c: 3-symbol blocks'], ['d', 'd: single, normalized'], ['e', 'e: best of a/b/c']], value: p.pass, onchange: v => { p.pass = v; runBP(); } });
     const passNote = el('div', 'note'); ctl.append(passNote);
-    slider(ctl, { label: 'max BP iterations', min: 1, max: 100, step: 1, value: p.maxIter, oninput: v => { p.maxIter = v; runBP(); } });
+    slider(ctl, { label: 'max BP iterations', min: 1, max: 100, step: 1, value: p.maxIter, oninput: v => { p.maxIter = v; runBPSoon(); } });
     checkbox(ctl, { label: 'early stop (no progress for 5 iters after 10)', value: p.earlyStop, onchange: v => { p.earlyStop = v; runBP(); } });
-    slider(ctl, { label: 'LLR scale', min: 0.1, max: 4, step: 0.1, value: p.scale, fmt: v => v.toFixed(1) + '×', oninput: v => { p.scale = v; runBP(); } });
-    slider(ctl, { label: 'added Gaussian noise σ', min: 0, max: 6, step: 0.1, value: p.noise, fmt: v => v.toFixed(1), oninput: v => { p.noise = v; runBP(); } });
-    slider(ctl, { label: 'noise seed', min: 1, max: 50, step: 1, value: p.seed, oninput: v => { p.seed = v; runBP(); } });
+    slider(ctl, { label: 'LLR scale', min: 0.1, max: 4, step: 0.1, value: p.scale, fmt: v => v.toFixed(1) + '×', oninput: v => { p.scale = v; runBPSoon(); } });
+    slider(ctl, { label: 'added Gaussian noise σ', min: 0, max: 6, step: 0.1, value: p.noise, fmt: v => v.toFixed(1), oninput: v => { p.noise = v; runBPSoon(); } });
+    slider(ctl, { label: 'noise seed', min: 1, max: 50, step: 1, value: p.seed, oninput: v => { p.seed = v; runBPSoon(); } });
     checkbox(ctl, { label: 'draw all 522 edges', value: p.edges, onchange: v => { p.edges = v; drawView(); } });
     ctl.append(el('div', 'note', 'The decoder tries LLR sets a, b, c, d, e with the amplitude metric, then the same five with the power metric, stopping at the first success; at depth ≥ 2 each failed BP attempt falls through to OSD, and at depth 3 the CQ / MyCall a-priori passes come last. Typical LLR magnitudes are 1–5; noise σ of 2–3 is roughly a 6–9 dB weaker signal.'));
 
@@ -79,6 +79,8 @@ export default {
     function layoutView() { for (const [k, b] of tabBtns) b.classList.toggle('active', k === st.view); cap.set(...(CAPTIONS[st.view] || [])); vctl.innerHTML = ''; if (st.view === 'check') vctl.append(checkCtl); if (st.view === 'osd') vctl.append(osdCtl); if (st.view === 'ap') vctl.append(apCtl); viewP.querySelector('h3').textContent = { tanner: 'Tanner graph: 174 bit nodes (top, current belief) ↔ 83 parity checks (bottom, red = unsatisfied)', circle: 'Circular layout: bits on the outer ring, checks on the inner ring, edges colored by the check→bit message', heat: 'Belief per bit (columns) per iteration (rows): blue = leaning 0, orange = leaning 1. Below: the 83 checks per iteration', check: 'One parity check and its bits: what it hears, what it tells them', osd: 'Ordered statistics decoding: sort bits by reliability, re-encode from the 91 most reliable, flip a few of the least reliable of those', ap: 'A-priori decoding: overwrite 32 LLRs with a guess about the message, then run BP again' }[st.view]; }
 
     function run() { const c = app.selected; if (!c) return; st.trace = decodeCandidate(app.getCtx(), c, { depth: 3, mycallBits: callsignToApBits(p.mycall) }); app.trace = st.trace; st.truthCw = st.trace.result ? st.trace.result.codeword : null; const d = app.truthFor(c); st.truthText = d ? d.message : null; runBP(); }
+    // The LLR sliders fire per pixel and each run is a traced BP decode plus six redraws.
+    const runBPSoon = coalesce(() => runBP());
     function runBP() {
       const tr = st.trace; if (!tr) return; passNote.textContent = LLR_PASS_INFO[p.pass];
       const base = tr.llr[p.metric][p.pass]; const rng = mulberry(p.seed * 7919);
@@ -109,7 +111,7 @@ export default {
       let m = 0; for (const v of it.zn) m = Math.max(m, Math.abs(v)); m = m || 1;
       if (p.edges) { g.lineWidth = 0.5; for (let e = 0; e < graph.nEdges; e++) { const b = graph.edgeBit[e], c = graph.edgeCheck[e]; g.strokeStyle = edgeColor(it.tov[e], unsat.has(c)); g.beginPath(); g.moveTo(bx(b), yb + 6); g.lineTo(cx(c), yc - 6); g.stroke(); } }
       for (let i = 0; i < N; i++) { g.fillStyle = bitColor(it.zn[i], m); g.beginPath(); g.arc(bx(i), yb, 2.6, 0, 7); g.fill(); if (st.truthCw && it.hard[i] !== st.truthCw[i]) { g.strokeStyle = '#ff5c5c'; g.lineWidth = 1; g.beginPath(); g.arc(bx(i), yb, 4.5, 0, 7); g.stroke(); } }
-      for (let j = 0; j < M; j++) { g.fillStyle = unsat.has(j) ? '#ff5c5c' : '#3ddc97'; g.fillRect(cx(j) - 4, yc - 4, 8, 8); if (j === p.checkIdx && st.view === 'check') { g.strokeStyle = '#fff'; g.strokeRect(cx(j) - 6, yc - 6, 12, 12); } }
+      for (let j = 0; j < M; j++) { g.fillStyle = unsat.has(j) ? '#ff5c5c' : '#3ddc97'; g.fillRect(cx(j) - 4, yc - 4, 8, 8); if (j === p.checkIdx) { g.strokeStyle = '#fff'; g.strokeRect(cx(j) - 6, yc - 6, 12, 12); } }
       text(g, 'bits: blue = leaning 0, orange = leaning 1; red ring = differs from true codeword', 10, yb + 10, { color: '#8b93a3' });
       text(g, 'checks: green = satisfied, red = XOR ≠ 0. Edges: check→bit messages, colored by sign. Click a check to inspect it in view D', 10, yc + 10, { color: '#8b93a3' });
     }
@@ -232,7 +234,7 @@ export default {
       html += `<br>Order the decoder tries (depth 3): ${tr.attempts.map(a => a.skipped ? `<span class="pill bad">${a.metric}: ${a.reason}</span>` : `<span class="pill ${a.ok ? 'ok' : ''}">${a.ap ? 'AP' + a.ap + ' ' : ''}${a.metric}/${a.pass} ${a.ok ? '✓ ' + a.how : a.reject ? '✗ ' + a.reject : '✗ bp ' + (a.bp.iterations.length - 1) + ' it' + (a.osd ? ', osd ' + a.osd.attempts.length + '×' : '')}</span>`).join(' ')}`;
       res.innerHTML = html;
     }
-    function drawAll() { if (!st.bp) return; lastIter = -1; bars(cvL, st.llr); drawView(); drawConv(); drawBits(); drawRes(); renderTable(); }
+    function drawAll() { if (!st.bp) return; bars(cvL, st.llr); drawView(); drawConv(); drawBits(); drawRes(); lastIter = curIter(); }
     cvV.addEventListener('click', e => { if (st.view !== 'tanner') return; const r = cvV.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; if (Math.abs(y - (cvV.h - 46)) < 10) { p.checkIdx = Math.max(0, Math.min(82, Math.floor((x - 8) / (cvV.w - 16) * M))); checkSl.value = p.checkIdx; app.setTab('check'); } });
     // One BP iteration lasts half a second of clock time, so ~30 of every 31 ticks would redraw
     // exactly the same picture. Redraw only when the iteration index actually changes, and never
@@ -244,7 +246,7 @@ export default {
       if (BP_VIEWS.includes(st.view)) drawView();
       drawConv(); drawBits(); drawRes();
     }));
-    st.unsubs.push(app.on(k => { if (k === 'select') run(); if (k === 'sync') renderTable(); }));
+    st.unsubs.push(app.on(k => { if (k === 'select') { run(); renderTable(); } if (k === 'sync') renderTable(); }));
     layoutView(); run();
     this.setTab = (id) => { if (!id || id === st.view || !VIEWS.some(v => v[0] === id)) return; st.view = id; layoutView(); drawAll(); };
   },

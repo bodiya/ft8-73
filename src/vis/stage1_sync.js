@@ -21,7 +21,7 @@ const LADDER_STEP = 4;   // spectrogram rows per causal step (4 rows = one symbo
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); return; }
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const P = app.syncParams, V = st.view;
     const want = app.tabFor('sync', MODES.map(m => m[0])); if (want) st.mode = want;
     root.append(el('h1', null, '1 · Coarse sync: finding candidates with the Costas arrays'));
@@ -207,6 +207,8 @@ export default {
       candidates.forEach((c, i) => { const tr = el('tr'); const d = app.truthFor(c); tr.innerHTML = `<td>${i + 1}</td><td>${c.score.toFixed(2)}</td><td>${c.freq.toFixed(1)}</td><td>${c.dt.toFixed(2)}</td><td>${c.kind}</td><td class="msg">${d ? `<span style="color:${passColor(d.pass)}">p${d.pass}</span> ${d.message} (${d.snr} dB)` : '—'}</td>`; if (app.selected === c) tr.classList.add('sel'); tr.onclick = () => { focusOn(c.bin, c.lag); app.select(c); }; t.append(tr); });
       listWrap.append(t);
     }
+    /** Move the highlight instead of rebuilding the table, which would scroll it back to the top. */
+    function markSelected() { const rows = listWrap.querySelectorAll('tr'); const cands = current().candidates; for (let i = 1; i < rows.length; i++) rows[i].classList.toggle('sel', cands[i - 1] === app.selected); }
     function focusOn(bin, lag) { st.focus = { bin, lag }; if (st.mode === 'lag') { app.clock.pause(); app.clock.seek((lag + JZ + 0.5) / (2 * JZ + 1) * app.clock.duration); } drawSurface(); drawCross(); drawTemplate(); drawAux(); }
     function drawAll() { lastKey = null; drawSpectrum(); drawSurface(); drawCross(); drawTemplate(); drawAux(); drawStats(); drawList(); }
 
@@ -224,7 +226,7 @@ export default {
       if (st.mode === 'causal') { drawSpectrum(); drawSurface(); drawCross(); drawTemplate(); drawAux(); drawStats(); drawList(); }
       else { drawCross(); drawTemplate(); if (st.mode === 'freq') drawAux(); }
     }));
-    st.unsubs.push(app.on(k => { if (k === 'sync') { st.causalCache.clear(); if (st.mode === 'causal') buildLadder(); drawAll(); } if (k === 'select') drawList(); }));
+    st.unsubs.push(app.on(k => { if (k === 'sync') { st.causalCache.clear(); if (st.mode === 'causal') buildLadder(); drawAll(); } if (k === 'select') markSelected(); }));
 
     if (app.selected && app.selected.bin != null) st.focus = { bin: app.selected.bin, lag: app.selected.lag };
     else if (app.selected) { const s = app.surf; const bin = Math.round((app.selected.freq - s.freqs[0]) / s.df); if (bin >= 0 && bin < s.nb) st.focus = { bin, lag: Math.round(app.selected.dt / 0.04 + 0.5) }; }

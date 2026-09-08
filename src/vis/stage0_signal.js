@@ -5,7 +5,7 @@
 // The noise-baseline plot depends on nothing the clock moves, so it is drawn on control changes.
 import { powerSpectrum } from '../dsp/fft.js';
 import { FS } from '../dsp/constants.js';
-import { slider, select, checkbox, el, panel, canvas, layers } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, layers, coalesce } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, passColor, linePlot } from '../ui/draw.js';
 
 function dispSpectrogram(audio, nfft, hop) {
@@ -15,13 +15,14 @@ function dispSpectrogram(audio, nfft, hop) {
   return { rows, nb, data, nfft, hop, df: FS / nfft, t0: nfft / 2 / FS, dt: hop / FS };
 }
 
-const st = { params: { nfft: 3840, hop: 960, fmin: 200, fmax: 3200, dbLo: 35, dbHi: 85, boxes: 'wsjtr', cmap: 'viridis', volume: 0.5 }, spec: null, audioCtx: null, src: null, gain: null, unsubs: [] };
+const st = { params: { nfft: 3840, hop: 960, fmin: 200, fmax: 3200, dbLo: 35, dbHi: 85, boxes: 'wsjtr', cmap: 'viridis', volume: 0.5 }, spec: null, specKey: null, audioCtx: null, src: null, gain: null, unsubs: [] };
 
 function stopAudio() { if (st.src) { try { st.src.stop(); } catch {} st.src = null; } }
 function syncAudio(app) {
   const c = app.clock; stopAudio();
   if (!c.playing) return;
-  if (!st.audioCtx) { st.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); st.gain = st.audioCtx.createGain(); st.gain.connect(st.audioCtx.destination); const buf = st.audioCtx.createBuffer(1, app.audio.length, FS); const ch = buf.getChannelData(0); for (let i = 0; i < app.audio.length; i++) ch[i] = app.audio[i] / 32768; st.buf = buf; }
+  if (!st.audioCtx) { st.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); st.gain = st.audioCtx.createGain(); st.gain.connect(st.audioCtx.destination); }
+  if (!st.buf || st.bufAudio !== app.audio) { const buf = st.audioCtx.createBuffer(1, app.audio.length, FS); const ch = buf.getChannelData(0); for (let i = 0; i < app.audio.length; i++) ch[i] = app.audio[i] / 32768; st.buf = buf; st.bufAudio = app.audio; }
   if (st.audioCtx.state === 'suspended') st.audioCtx.resume();
   st.gain.gain.value = st.params.volume;
   const s = st.audioCtx.createBufferSource(); s.buffer = st.buf; s.loop = c.loop; s.playbackRate.value = c.speed; s.connect(st.gain); s.start(0, c.t); st.src = s;
@@ -29,10 +30,10 @@ function syncAudio(app) {
 
 export default {
   mount(root, app) {
-    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); return; }
+    if (!app.ready) { root.textContent = 'loading…'; const off = app.on(k => { if (k === 'ready') { off(); this.mount(root, app); } }); st.unsubs.push(off); return; }  // cancelled by unmount if you navigate away first
     const p = st.params; app.clock.setDuration(app.duration);
     root.append(el('h1', null, '0 · The signal'));
-    root.append(el('p', 'blurb', 'This is the whole decoder input: 13.5 s of audio sampled at 12 kHz from a radio tuned to 14.074 MHz USB. Each FT8 transmission is 79 tones, 160 ms each, spaced 6.25 Hz — about 50 Hz wide and 12.64 s long. Boxes show where wsjtr eventually found signals (pass 1 = blue, 2 = green, 3 = yellow, cross-sequence A7 = purple). Press play to hear it; slow it down and the pitch drops with it, but the structure stays visible. Change the FFT size to trade frequency resolution for time resolution — 3840 points (3.125 Hz bins, 2 per tone) is what the sync search uses.'));
+    root.append(el('p', 'blurb', `This is the whole decoder input: ${app.duration.toFixed(1)} s of audio sampled at 12 kHz. Each FT8 transmission is 79 tones, 160 ms each, spaced 6.25 Hz — about 50 Hz wide and 12.64 s long. Boxes show where the reference decoder eventually found signals (pass 1 = blue, 2 = green, 3 = yellow, cross-sequence A7 = purple). Press play to hear it; slow it down and the pitch drops with it, but the structure stays visible. Change the FFT size to trade frequency resolution for time resolution: the sync search uses 1920 samples zero-padded to 3840, for 3.125 Hz bins two per tone.`));
     const row = el('div', 'row'); root.append(row);
     const ctl = el('div', 'controls panel'); row.append(ctl);
     const main = el('div'); row.append(main);
@@ -44,13 +45,20 @@ export default {
     const blP = panel(main, 'Noise baseline used for SNR: 83 Nuttall-windowed spectra averaged, 10th percentile in 10 segments, degree-5 polynomial fit'); const bl = canvas(blP, 1060, 150); blP.append(el('div', 'note', 'Reported SNR = signal power ÷ this baseline at the signal\'s frequency, referred to 2500 Hz. That is why a signal you can plainly see can still be "−15 dB": the reference bandwidth is 50× wider than the signal.'));
     const legend = el('div', 'legend'); legend.innerHTML = '<span><i style="background:#4ea1ff"></i>pass 1</span><span><i style="background:#3ddc97"></i>pass 2</span><span><i style="background:#ffd166"></i>pass 3</span><span><i style="background:#c792ea"></i>A7 / later</span>'; main.append(legend);
 
-    const recompute = () => { st.spec = dispSpectrogram(app.audio, p.nfft, p.hop); redraw(); };
-    select(ctl, { label: 'FFT size (frequency resolution)', options: [[960, '960 pts · 12.5 Hz · 80 ms'], [1920, '1920 pts · 6.25 Hz · 160 ms (one symbol)'], [3840, '3840 pts · 3.125 Hz · 160 ms zero-padded'], [7680, '7680 pts · 1.56 Hz · 640 ms']], value: p.nfft, onchange: v => { p.nfft = +v; p.hop = Math.max(120, p.nfft / 4); hopS.value = p.hop; recompute(); } });
+    // Dragging the hop slider fires an input event per pixel, and each one is a whole display
+    // spectrogram (up to 5 s at 7680 points). Coalesce to one rebuild per frame, and skip it
+    // entirely when the parameters have not actually changed (a remount, or a slider returning
+    // to a value it already had).
+    const specKey = () => `${app.name}|${p.nfft}|${p.hop}`;
+    const rebuild = () => { const k = specKey(); if (!st.spec || st.specKey !== k) { st.spec = dispSpectrogram(app.audio, p.nfft, p.hop); st.specKey = k; } };
+    const recompute = coalesce(() => { rebuild(); redraw(); });
+    const redrawSoon = coalesce(() => redraw());
+    select(ctl, { label: 'FFT size (frequency resolution)', options: [[960, '960 pts · 12.5 Hz · 80 ms'], [1920, '1920 pts · 6.25 Hz · 160 ms (one symbol)'], [3840, '3840 pts · 3.125 Hz · 320 ms'], [7680, '7680 pts · 1.56 Hz · 640 ms']], value: p.nfft, onchange: v => { p.nfft = +v; p.hop = Math.max(120, p.nfft / 4); hopS.value = p.hop; recompute(); } });
     const hopS = slider(ctl, { label: 'hop (time step)', min: 120, max: 1920, step: 120, value: p.hop, fmt: v => `${v} smp = ${(v / 12).toFixed(0)} ms`, oninput: v => { p.hop = v; recompute(); } });
-    slider(ctl, { label: 'freq min', min: 0, max: 3000, step: 50, value: p.fmin, fmt: v => v + ' Hz', oninput: v => { p.fmin = v; if (p.fmax <= v + 100) p.fmax = v + 100; redraw(); } });
-    slider(ctl, { label: 'freq max', min: 300, max: 6000, step: 50, value: p.fmax, fmt: v => v + ' Hz', oninput: v => { p.fmax = v; if (p.fmin >= v - 100) p.fmin = v - 100; redraw(); } });
-    slider(ctl, { label: 'color floor', min: 0, max: 100, value: p.dbLo, fmt: v => v + ' dB', oninput: v => { p.dbLo = v; redraw(); } });
-    slider(ctl, { label: 'color ceiling', min: 20, max: 140, value: p.dbHi, fmt: v => v + ' dB', oninput: v => { p.dbHi = v; redraw(); } });
+    slider(ctl, { label: 'freq min', min: 0, max: 3000, step: 50, value: p.fmin, fmt: v => v + ' Hz', oninput: v => { p.fmin = v; if (p.fmax <= v + 100) p.fmax = v + 100; redrawSoon(); } });
+    slider(ctl, { label: 'freq max', min: 300, max: 6000, step: 50, value: p.fmax, fmt: v => v + ' Hz', oninput: v => { p.fmax = v; if (p.fmin >= v - 100) p.fmin = v - 100; redrawSoon(); } });
+    slider(ctl, { label: 'color floor', min: 0, max: 100, value: p.dbLo, fmt: v => v + ' dB', oninput: v => { p.dbLo = v; redrawSoon(); } });
+    slider(ctl, { label: 'color ceiling', min: 20, max: 140, value: p.dbHi, fmt: v => v + ' dB', oninput: v => { p.dbHi = v; redrawSoon(); } });
     const boxSel = select(ctl, { label: 'decode boxes', options: [['wsjtr', `wsjtr (${app.truth.wsjtr.length}, by pass)`], ['wsjtx', `WSJT-X (${app.truth.wsjtx.length})`], ['js', 'this JS decoder (by pass)'], ['none', 'none']], value: app.truth.wsjtr.length ? p.boxes : 'js', onchange: v => { p.boxes = v; if (v === 'js') app.ensureJsDecoder(); redraw(); } }); if (!app.truth.wsjtr.length) p.boxes = 'js';
     select(ctl, { label: 'color map', options: ['viridis', 'hot', 'blue'], value: p.cmap, onchange: v => { p.cmap = v; redraw(); } });
     slider(ctl, { label: 'volume', min: 0, max: 1, step: 0.05, value: p.volume, fmt: v => Math.round(v * 100) + '%', oninput: v => { p.volume = v; if (st.gain) st.gain.gain.value = v; } });
@@ -110,8 +118,8 @@ export default {
     });
     st.unsubs.push(app.clock.subscribe((c, kind) => { drawOv(); drawStrip(); if (['play', 'pause', 'seek', 'speed'].includes(kind)) syncAudio(app); }));
     st.unsubs.push(app.on(k => { if (k === 'select' || k === 'jsdecodes') drawBg(); }));
-    recompute();
+    rebuild(); redraw();
     app.getBaseline().then(b => { st.baseline = b; drawBaseline(); }).catch(e => console.warn('baseline', e));
   },
-  unmount() { stopAudio(); for (const u of st.unsubs) u(); st.unsubs = []; },
+  unmount() { stopAudio(); if (st.audioCtx && st.audioCtx.state === 'running') st.audioCtx.suspend(); for (const u of st.unsubs) u(); st.unsubs = []; },
 };

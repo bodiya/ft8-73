@@ -39,7 +39,7 @@ export const app = {
   selected: null,       // selected candidate {freq, dt, score, ...}
   listeners: new Set(), _jobId: 0, worker: null, name: '260726_190930', jsPassInputs: [], mycallBits: null,
   page: 'home', tab: null,   // current route: #<page> or #<page>/<tab>
-  asset,
+  asset, idle,
   status(msg) { document.getElementById('loadstatus').textContent = msg; },
   emit(kind) { for (const fn of this.listeners) fn(kind); },
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
