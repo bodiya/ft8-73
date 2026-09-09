@@ -95,7 +95,10 @@ function tryType4(parts) {
   if (icq) { if (!aN) return null; } else if (aN === bN) return null;
   const [nonStd, stdCall, iflip] = icq ? [callA, null, 0] : aN ? [callA, callB, 1] : [callB, callA, 0];
   const n58 = encodeBase38_11(nonStd); if (n58 == null) return null;
-  const n12 = stdCall ? hashCall(stdCall.trim(), 12) : 0;
+  // packjt77.f90 pack77_4: with no standard call to hash (a CQ), WSJT-X puts the hash of the
+  // nonstandard call itself here, which is how a receiver learns to resolve that <...> later.
+  // <CALL> marks the call that travels as a hash; the brackets are syntax, not part of the call.
+  const n12 = stdCall ? hashCall(stdCall.trim().replace(/^<|>$/g, ''), 12) : hashCall(nonStd.trim(), 12);
   const bits = new Uint8Array(77); writeBits(bits, 0, 12, n12); writeBits(bits, 12, 58, n58); bits[70] = iflip; writeBits(bits, 71, 2, nrpt); bits[73] = icq; writeBits(bits, 74, 3, 4); return bits;
 }
 function tryCq(parts) {

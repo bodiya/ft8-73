@@ -27,16 +27,35 @@ for (const m of msgs) {
 check(pack28('CQ') === 2 && pack28('DE') === 0 && pack28('QRZ') === 1, 'pack28 tokens');
 check(callsignToApBits('K1ABC') && callsignToApBits('K1ABC').length === 29 && callsignToApBits('CQ') === null, 'ap bits');
 
-// ft8coder comparison (strongest check)
+// Reference comparisons (the strongest check). wsjtr's ft8coder is the port target, but for the
+// h12 hash in type-4 messages it disagrees with WSJT-X itself, so those cases are checked against
+// WSJT-X's own ft8code and listed here rather than silently matched to the divergence:
+//   CQ <nonstandard call>   wsjtr writes h12 = 0; WSJT-X writes the hash of the nonstandard call,
+//                           which is how a receiver learns to resolve that <...> later.
+//   <CALL> in either slot   wsjtr hashes the call with its angle brackets attached.
+// A wsjtr transmission of those messages is a different codeword from WSJT-X's, and re-encoding
+// one for subtraction would not match the received signal.
+const WSJTR_DIVERGES = new Set(['CQ KC1WIH/QRP', 'CQ W9XYZ/MM', '<K1ABC> KC1WIH/QRP RR73', 'KC1WIH/QRP <K1ABC> 73']);
+const CASES = ['CQ K1ABC FN42', 'KN1OBI OK1PVT R-14', 'K1ABC W9XYZ RR73', 'CQ POTA WA9TT EN54', 'TNX BOB 73', 'K1ABC/P W9XYZ FN42', 'CQ KC1WIH/QRP', 'CQ W9XYZ/MM', '<K1ABC> KC1WIH/QRP RR73', 'KC1WIH/QRP <K1ABC> 73', 'KC1WIH TNX 73', 'WA9XYZ KA1ABC R 16A EMA', 'TU; W9XYZ K1ABC R 579 MA', 'CQ DX K1ABC', 'CQ 123 K1ABC', 'C6AVD N4MC +01', 'CQ 9A2L JN83'];
 const coder = '/home/brian/repos/wsjtr-public/target/release/ft8coder';
-if (fs.existsSync(coder)) {
-  let cmp = 0;
-  for (const m of ['CQ K1ABC FN42', 'KN1OBI OK1PVT R-14', 'K1ABC W9XYZ RR73', 'CQ POTA WA9TT EN54', 'TNX BOB 73', 'K1ABC/P W9XYZ FN42', 'CQ KC1WIH/QRP', 'KC1WIH/QRP K1ABC RR73', 'WA9XYZ KA1ABC R 16A EMA', 'TU; W9XYZ K1ABC R 579 MA', 'CQ DX K1ABC', 'CQ 123 K1ABC', 'C6AVD N4MC +01', 'CQ 9A2L JN83']) {
+const ft8code = '/usr/bin/ft8code';
+const haveCoder = fs.existsSync(coder), haveFt8code = fs.existsSync(ft8code);
+let cmp = 0, skipped = 0;
+for (const m of CASES) {
+  const useWsjtx = WSJTR_DIVERGES.has(m);
+  if (useWsjtx ? !haveFt8code : !haveCoder) { skipped++; continue; }
+  const { tones } = tonesFromBits77(pack77(m).bits);
+  let ref;
+  if (useWsjtx) {
+    const out = execFileSync(ft8code, [m], { encoding: 'utf8' });
+    const bits = out.split('\n')[out.split('\n').findIndex(l => l.includes('77 bits')) + 1].trim();
+    ref = tonesFromBits77(Uint8Array.from(bits, c => +c)).tones;
+  } else {
     let out; try { out = execFileSync(coder, [m], { encoding: 'utf8' }); } catch (e) { console.log('ft8coder failed on', m, e.message.split('\n')[0]); continue; }
-    const ref = out.trim().split(/\s+/).map(Number); const { tones } = tonesFromBits77(pack77(m).bits);
-    check(ref.length === 79 && ref.every((t, i) => t === tones[i]), `ft8coder tones "${m}"`); cmp++;
+    ref = out.trim().split(/\s+/).map(Number);
   }
-  console.log(`compared ${cmp} messages against ft8coder`);
-} else console.log('ft8coder binary not found; skipped');
+  check(ref.length === 79 && ref.every((t, i) => t === tones[i]), `${useWsjtx ? 'ft8code (WSJT-X)' : 'ft8coder'} tones "${m}"`); cmp++;
+}
+console.log(`compared ${cmp} messages against reference encoders${skipped ? `, skipped ${skipped} (binary missing)` : ''}`);
 console.log(`${n - fail}/${n} checks passed over ${msgs.size} messages`);
 process.exit(fail ? 1 : 0);
