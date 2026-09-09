@@ -8,6 +8,19 @@ export default {
 <h1>Seven Threes</h1>
 <p class="sub">Seven tones, three times, and everything after.</p>
 <p class="blurb">Every page runs the real algorithms (ported from the <b>wsjtr</b> Rust decoder, itself a port of WSJT-X) in your browser on one recorded 15 s window of 20 m FT8. Knobs change the algorithm live; the transport bar at the top slows down, speeds up, scrubs and loops whatever the current page animates. Space toggles play.</p>
+<h2>Take the tour</h2>
+<p class="blurb">Every stage has a <b>Try this</b> row above its plots: one click sets the knobs for a specific experiment and tells you what changed. The fastest way through the whole decoder is to follow these eight, in order. Ten minutes, no reading required.</p>
+<ol class="tour">
+<li><a href="#signal">0 · Signal</a>, click <b>zoom to one signal</b>. One FT8 transmission: 50 Hz wide, 12.6 s long, tones stepping down the page. Then <b>trade frequency for time</b> to see why 6.25 Hz bins and 160 ms frames are the only sensible choice.</li>
+<li><a href="#sync/lag">1 · Coarse sync</a>, press play. The 7-tone template slides through all 125 lags at one frequency; the score spikes when it lines up. That spike, divided by the noise floor, is the whole candidate test.</li>
+<li>Same page, click <b>cap the list at 30</b>. Pass-1 decodes with a candidate fall from 18/18 to 11/18. The candidate budget, not the threshold, is what limits how much of the band you can read.</li>
+<li><a href="#sync/causal">1 · causal reveal</a>, press play. The search re-runs on the audio heard so far. Real signals only clear the threshold at 7.4 s, when the second Costas array lands, which is how a decoder can start before the slot ends.</li>
+<li><a href="#candidate">2 · One candidate</a>, click <b>time off by 70 ms</b>. nsync drops to 13 of 21 and 14 of the 174 bits come out wrong, and the message still decodes. Then <b>time off by 80 ms</b>: the sync gate blocks it and no LDPC work is attempted at all.</li>
+<li><a href="#ldpc/heat">3 · LDPC</a>, click <b>noise σ 3</b>, then <b>σ 3.5</b>. Six iterations to a clean decode, then no convergence at all. LDPC gives you the message or nothing, which is why FT8 never prints garbled text.</li>
+<li><a href="#passes/recorded">4 · Subtraction</a>, click <b>the KY9L footprint</b>. A −6 dB signal at 1551 Hz is decoded and subtracted, and three messages between −13 and −17 dB appear underneath it on pass 3.</li>
+<li><a href="#encode">E · Encode</a>, click <b>SNR −21 dB</b>, then <b>decode this as the loaded window</b>. You have just made a signal you cannot see, and stage 1 finds it anyway. Every page is now running on your transmission instead of the recording; <b>example</b> in the top bar puts the recording back.</li>
+</ol>
+
 <h2>The pipeline</h2>
 <div class="card"><a href="#signal">0 · Signal</a> — what the sound card hands the decoder: 12 kHz audio, a spectrogram, and where the 51 signals in this window actually are. Listen to it at any speed.</div>
 <div class="card"><a href="#sync">1 · Coarse sync</a> — slide the 7×7 Costas template over a 3.125 Hz × 40 ms spectrogram to build the frequency × time-offset sync surface, normalize it by a noise-floor percentile, threshold, dedupe → candidate list. Tweak the percentile, the threshold, the lag window, the dedupe tolerances.</div>

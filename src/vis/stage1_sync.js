@@ -7,7 +7,7 @@
 // computed in the background as soon as that view opens and simply looked up during playback.
 import { syncAt, syncSurface, syncHits, dedupeCandidates } from '../dsp/sync.js';
 import { COSTAS, JZ } from '../dsp/constants.js';
-import { slider, select, checkbox, el, panel, canvas, layers, tabbar, caption } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, layers, tabbar, caption, tryThis } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, passColor, linePlot } from '../ui/draw.js';
 
 const st = { view: { span: 0, center: 1600, vmax: 5, ymax: 8, rings: true }, focus: null, mode: 'lag', causalCache: new Map(), ladderToken: 0, unsubs: [] };
@@ -32,6 +32,26 @@ export default {
     const main = el('div'); row.append(main);
     const tabs = tabbar(main, MODES, st.mode, id => app.setTab(id));
     const cap = caption(main);
+    // Guided settings for the same knobs the panel exposes. Each one starts from the wsjtr defaults
+    // and changes exactly one thing, so the numbers quoted below hold whichever button you press
+    // first. They were read off this page on the bundled window; keep them in step with the code.
+    const D = { basePct: 0.40, syncMin: 1.2, mlag: 13, maxCandidates: 200, dtTol: 0.04, freqTol: 4, useRed2: true, freqMin: 200, freqMax: 4007 };
+    const W = {};   // param name -> control widget, filled in once the panel below is built
+    const expt = (over) => { Object.assign(P, D, over); for (const k in P) if (W[k]) W[k].value = P[k]; rerun(); };
+    tryThis(main, [
+      { label: 'cap the list at 30', see: 'Candidates drop from <b>200</b> to <b>30</b>, and reference pass-1 decodes with a candidate falls from <b>18/18</b> to <b>11/18</b>. The cap, not the threshold, is what decides how much of the band you can still decode.',
+        run: () => expt({ maxCandidates: 30 }) },
+      { label: 'threshold 3.0', see: 'Raw hits fall from <b>897</b> to <b>162</b>, and every one of the <b>18/18</b> pass-1 decodes still has a candidate. Real signals clear the noise floor by a wide margin; the low default is there for the weak ones.',
+        run: () => expt({ syncMin: 3 }) },
+      { label: 'threshold 0.8', see: 'Raw hits hit the <b>1000</b> cap, and the numbers that matter do not move: still 200 candidates, still <b>18/18</b> pass 1. Once the budget is full, lowering the bar buys nothing.',
+        run: () => expt({ syncMin: 0.8 }) },
+      { label: 'short-lag only', see: 'Turning off the full ±2.48 s search drops the largest |DT| in the list from <b>2.50 s</b> to <b>0.54 s</b>. One pass-1 decode loses its candidate, but later-pass coverage rises, because the two searches share one 200-slot budget.',
+        run: () => expt({ useRed2: false }) },
+      { label: '90th percentile floor', see: 'The floor moves from <b>2.00</b> to <b>5.08</b>, so the same 1.20 threshold now asks for a raw score of <b>6.1</b> instead of 2.4, and hits fall from <b>897</b> to <b>150</b>. This is what "normalize, then threshold" is actually doing.',
+        run: () => expt({ basePct: 0.9 }) },
+      { label: 'wsjtr defaults', see: '40th percentile, threshold 1.20, ±13 lags, full-lag search on, 200 candidates, dedupe within 4 Hz and 0.04 s.',
+        run: () => expt({}) },
+    ], () => app.name === '260726_190930' ? '' : ' <i>Numbers here were measured on the bundled window, not the one you have loaded.</i>');
     const specP = panel(main, 'Sync spectrum: best score per frequency bin ÷ noise floor'); const [cvSb, cvS] = layers(specP, 1000, 190);
     const surfP = panel(main, 'Sync surface: score vs frequency (→) and time offset DT (↓)'); const [cvUb, cvU] = layers(surfP, 1000, 380);
     const hover = el('div', 'stats', ' '); surfP.append(hover); const lg = el('div', 'legend'); lg.innerHTML = '<span>○ white = kept candidate (purple = found via the full-lag red2 search)</span><span>○ colored ring = reference decode (blue p1, green p2, yellow p3, purple A7)</span><span>lighter band = the short-lag window</span>'; surfP.append(lg);
@@ -41,20 +61,24 @@ export default {
     const bottom = el('div', 'row'); main.append(bottom);
     const listP = panel(bottom, 'Candidate list (after dedupe, strongest first)'); listP.style.flex = '1 1 460px'; const listWrap = el('div', 'scroll'); listP.append(listWrap);   // fixed share of the row so the template column does not slide sideways as the causal list fills
     const side = el('div', 'controls'); side.style.maxWidth = '460px'; side.style.minWidth = '460px'; bottom.append(side);
-    const tmplP = panel(side, 'The template'); const cvT = canvas(tmplP, 430, 380); const tinfo = el('div', 'stats'); tmplP.append(tinfo);
+    const tmplP = panel(side, 'The template on the spectrogram'); const cvT = canvas(tmplP, 430, 380);
+    // Four lines of .stats (12px at line-height 1.5) reserved: the readout is three lines and grows
+    // to four when there is a reference decode to name, and without this the panels below it move.
+    const tinfo = el('div', 'stats'); tinfo.style.minHeight = '72px'; tmplP.append(tinfo);
     const auxP = panel(side, 'Score along the sweep'); const cvA = canvas(auxP, 430, 150); const ainfo = el('div', 'note'); auxP.append(ainfo);
     const stats = panel(side, 'Counts'); const statsTxt = el('div', 'stats'); stats.append(statsTxt);
 
     const rerun = () => { st.causalCache.clear(); app.recomputeSync(); };
-    slider(ctl, { label: 'noise-floor percentile', min: 0.05, max: 0.95, step: 0.05, value: P.basePct, fmt: v => (v * 100).toFixed(0) + 'th', oninput: v => { P.basePct = v; rerun(); } });
-    slider(ctl, { label: 'sync threshold (× floor)', min: 0.5, max: 6, step: 0.05, value: P.syncMin, fmt: v => v.toFixed(2), oninput: v => { P.syncMin = v; rerun(); } });
-    slider(ctl, { label: 'short-lag window ±', min: 0, max: 62, step: 1, value: P.mlag, fmt: v => `${v} = ±${(v * 0.04).toFixed(2)} s`, oninput: v => { P.mlag = v; rerun(); } });
-    checkbox(ctl, { label: 'also keep best over the full ±2.48 s (red2)', value: P.useRed2, onchange: v => { P.useRed2 = v; rerun(); } });
-    slider(ctl, { label: 'max candidates', min: 10, max: 1000, step: 10, value: P.maxCandidates, oninput: v => { P.maxCandidates = v; rerun(); } });
+    const slPct = slider(ctl, { label: 'noise-floor percentile', min: 0.05, max: 0.95, step: 0.05, value: P.basePct, fmt: v => (v * 100).toFixed(0) + 'th', oninput: v => { P.basePct = v; rerun(); } });
+    const slThresh = slider(ctl, { label: 'sync threshold (× floor)', min: 0.5, max: 6, step: 0.05, value: P.syncMin, fmt: v => v.toFixed(2), oninput: v => { P.syncMin = v; rerun(); } });
+    const slMlag = slider(ctl, { label: 'short-lag window ±', min: 0, max: 62, step: 1, value: P.mlag, fmt: v => `${v} = ±${(v * 0.04).toFixed(2)} s`, oninput: v => { P.mlag = v; rerun(); } });
+    const cbRed2 = checkbox(ctl, { label: 'also keep best over the full ±2.48 s (red2)', value: P.useRed2, onchange: v => { P.useRed2 = v; rerun(); } });
+    const slMax = slider(ctl, { label: 'max candidates', min: 10, max: 1000, step: 10, value: P.maxCandidates, oninput: v => { P.maxCandidates = v; rerun(); } });
     slider(ctl, { label: 'dedupe: freq tolerance', min: 0, max: 25, step: 0.5, value: P.freqTol, fmt: v => v + ' Hz', oninput: v => { P.freqTol = v; rerun(); } });
     slider(ctl, { label: 'dedupe: DT tolerance', min: 0, max: 0.5, step: 0.01, value: P.dtTol, fmt: v => v.toFixed(2) + ' s', oninput: v => { P.dtTol = v; rerun(); } });
-    slider(ctl, { label: 'search freq min', min: 100, max: 3000, step: 50, value: P.freqMin, fmt: v => v + ' Hz', oninput: v => { P.freqMin = v; rerun(); } });
-    slider(ctl, { label: 'search freq max', min: 500, max: 4007, step: 50, value: P.freqMax, fmt: v => v + ' Hz', oninput: v => { P.freqMax = v; rerun(); } });
+    const slFmin = slider(ctl, { label: 'search freq min', min: 100, max: 3000, step: 50, value: P.freqMin, fmt: v => v + ' Hz', oninput: v => { P.freqMin = v; rerun(); } });
+    const slFmax = slider(ctl, { label: 'search freq max', min: 500, max: 4007, step: 50, value: P.freqMax, fmt: v => v + ' Hz', oninput: v => { P.freqMax = v; rerun(); } });
+    W.basePct = slPct; W.syncMin = slThresh; W.mlag = slMlag; W.maxCandidates = slMax; W.useRed2 = cbRed2; W.freqMin = slFmin; W.freqMax = slFmax;
     ctl.append(el('h3', null, 'view'));
     select(ctl, { label: 'zoom span', options: [[0, 'full range'], [1500, '1500 Hz'], [600, '600 Hz'], [250, '250 Hz'], [100, '100 Hz']], value: V.span, onchange: v => { V.span = +v; drawAll(); } });
     slider(ctl, { label: 'zoom center', min: 200, max: 4000, step: 5, value: V.center, fmt: v => v + ' Hz', oninput: v => { V.center = v; drawAll(); } });
@@ -177,7 +201,7 @@ export default {
       axisY(g, { x: Lx, y: Ty, h: H, min: 0, max: spec.rows * 0.04, ticks: [0, 2, 4, 6, 8, 10, 12], fmt: v => v + 's', flip: true });
       const { hits } = current(); const bi = bin - s.ia;
       const tr = app.truthFor({ freq: bin * s.df, dt: (lag - 0.5) * 0.04 });
-      tinfo.innerHTML = `f = <b>${(bin * s.df).toFixed(1)} Hz</b>, lag = <b>${lag}</b> (DT ${((lag - 0.5) * 0.04).toFixed(2)} s) → raw score <b>${r.score.toFixed(2)}</b> (all three arrays: ${r.abc.toFixed(2)}, last two only: ${r.bc.toFixed(2)}) = <b>${(r.score / (hits.base || 1)).toFixed(2)}</b> × floor. Best lag in ±${P.mlag} at this frequency: <b>${hits.jpeak[bi]}</b> → ${hits.red[bi].toFixed(2)}.` + (tr ? `<br>reference decode here: <b>${tr.message}</b> (pass ${tr.pass}, ${tr.snr} dB, DT ${tr.dt}).` : '');
+      tinfo.innerHTML = `f = <b>${(bin * s.df).toFixed(1)} Hz</b>, lag = <b>${lag}</b> (DT ${((lag - 0.5) * 0.04).toFixed(2)} s) → raw score <b>${r.score.toFixed(2)}</b> (all three arrays: ${r.abc.toFixed(2)}, last two only: ${r.bc.toFixed(2)}) = <b>${(r.score / (hits.base || 1)).toFixed(2)}</b> × floor. Best lag in ±${P.mlag} at this frequency: <b>${hits.jpeak[bi]}</b> → ${hits.red[bi].toFixed(2)}.` + (tr ? `<br>reference decode here: <b>${tr.message}</b> (pass ${tr.pass}, ${tr.snr} dB, DT ${tr.dt}).` : '<br>no reference decode within 6 Hz and 0.25 s of this point.');
     }
     function drawAux() {
       const g = cvA.g; clear(cvA); const Lx = 34, W = cvA.w - Lx - 8, H = cvA.h - T - 24;

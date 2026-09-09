@@ -45,6 +45,10 @@ table.list tr:hover { background:#1c2330; cursor:pointer; }
 .pill.ok { background:#1e5c3a; } .pill.bad { background:#5c1e1e; }
 .home .sub { color:var(--muted); font-size:15px; margin:-2px 0 12px; }
 .home ul { line-height:1.6; }
+.home ol.tour { color:var(--muted); max-width:900px; line-height:1.55; padding-left:22px; margin:0 0 14px; }
+.home ol.tour li { margin-bottom:7px; }
+.home ol.tour b { color:var(--ink); font-weight:600; }
+.home ol.tour a { color:var(--accent); font-weight:600; text-decoration:none; }
 .home .card { margin-bottom:10px; }
 .home .card a { color:var(--accent); font-weight:600; text-decoration:none; }
 .tabs { display:flex; gap:6px; margin-bottom:8px; }
@@ -68,6 +72,15 @@ kbd { background:var(--line); padding:0 5px; border-radius:3px; font-size:11px; 
 .tabs .group { display:flex; gap:6px; align-items:center; }
 .tabs .grouplab { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-right:2px; }
 .tabs .div { width:1px; align-self:stretch; background:var(--line); margin:0 6px; }
+
+/* "Try this" experiment strip: guided settings for the same knobs the controls panel exposes. */
+.trythis { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 10px; max-width:1000px; }
+.trythis .lab { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-right:2px; }
+.trythis button { background:var(--line); color:var(--ink); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; font-size:12px; }
+.trythis button:hover { background:#33405a; }
+.trythis button.active { background:var(--accent); color:#000; }
+.trythis .see { flex-basis:100%; font-size:12px; color:var(--muted); line-height:1.5; min-height:18px; }
+.trythis .see b { color:var(--ink); font-weight:600; }
 
 /* Narrow screens: the canvases are fixed-width by design (they are pixel plots), so let the
    panels scroll sideways instead of blowing the page layout out. */

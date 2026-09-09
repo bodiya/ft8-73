@@ -9,7 +9,7 @@ import { appendCrc, ldpcEncode, crc14 } from '../dsp/ldpc.js';
 import { tonesFromBits77 } from '../dsp/pipeline.js';
 import { GRAY_MAP, COSTAS, isSyncSymbol, FS } from '../dsp/constants.js';
 import { powerSpectrum } from '../dsp/fft.js';
-import { slider, select, checkbox, el, panel, canvas, layers, coalesce, button } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, layers, coalesce, button, caption, tryThis } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, linePlot } from '../ui/draw.js';
 
 const st = { p: { msg: 'CQ KC1WIH FN42', f0: 1000, snrDb: 99, volume: 0.5 }, sig: null, an: null, token: 0, unsubs: [], audioCtx: null, src: null };
@@ -28,12 +28,28 @@ export default {
     const main = el('div'); main.style.flex = '1'; row.append(main);
     const msgW = el('div', 'ctl'); msgW.innerHTML = '<div class="lab">message</div>'; const msgIn = el('input'); msgIn.type = 'text'; msgIn.value = p.msg; msgIn.style.fontFamily = 'monospace'; msgIn.oninput = () => { p.msg = msgIn.value.toUpperCase(); encodeSoon(); }; msgW.append(msgIn); ctl.append(msgW);
     const ex = el('div', 'note'); ex.innerHTML = 'try: '; for (const m of ['CQ KC1WIH FN42', 'CQ POTA WA9TT EN54', 'KC1WIH K1ABC -12', 'K1ABC KC1WIH R-08', 'KC1WIH K1ABC RR73', 'TNX BOB 73', 'CQ DX KC1WIH/P']) { const a = el('a', null, m); a.href = '#'; a.style.cssText = 'color:var(--accent);margin-right:8px;font-family:monospace'; a.onclick = e => { e.preventDefault(); p.msg = m; msgIn.value = m; encodeSoon(); }; ex.append(a); } ctl.append(ex);
-    slider(ctl, { label: 'audio frequency', min: 200, max: 3000, step: 25, value: p.f0, fmt: v => v + ' Hz', oninput: v => { p.f0 = v; encodeSoon(); } });
-    slider(ctl, { label: 'add noise: SNR', min: -26, max: 30, step: 1, value: p.snrDb > 50 ? 30 : p.snrDb, fmt: v => v >= 30 ? 'none' : v + ' dB (2500 Hz)', oninput: v => { p.snrDb = v >= 30 ? 99 : v; encodeSoon(); } });
+    const slF0 = slider(ctl, { label: 'audio frequency', min: 200, max: 3000, step: 25, value: p.f0, fmt: v => v + ' Hz', oninput: v => { p.f0 = v; encodeSoon(); } });
+    const slSnr = slider(ctl, { label: 'add noise: SNR', min: -26, max: 30, step: 1, value: p.snrDb > 50 ? 30 : p.snrDb, fmt: v => v >= 30 ? 'none' : v + ' dB (2500 Hz)', oninput: v => { p.snrDb = v >= 30 ? 99 : v; encodeSoon(); } });
     slider(ctl, { label: 'volume', min: 0, max: 1, step: 0.05, value: p.volume, fmt: v => Math.round(v * 100) + '%', oninput: v => { p.volume = v; if (st.gain) st.gain.gain.value = v; } });
     const useBtn = button(ctl, 'decode this as the loaded window →', () => { if (st.audio) { app.setAudio(st.audio, 'synth ' + p.msg, null); location.hash = '#sync'; } }); useBtn.style.marginTop = '6px';
     ctl.append(el('div', 'note', 'That button replaces the loaded audio with this synthetic transmission (plus noise) so every other page decodes it. "example" in the top bar restores the recorded window.'));
 
+    const cap = caption(main); cap.set('plays the synthesized transmission and steps the symbol cursor through all 79 tones.', 'the three Costas blocks in the tone plot, at symbols 0, 36 and 72. Everything stage 1 does is a search for that pattern.');
+    // The button that hands this audio to the decoder is the point of the page: everything here is
+    // synthesized, so you can push it to the edge and then watch the real decoder cope.
+    const setEnc = (over) => { Object.assign(p, over); msgIn.value = p.msg; slF0.value = p.f0; slSnr.value = p.snrDb > 50 ? 30 : p.snrDb; encodeSoon(); };
+    tryThis(main, [
+      { label: 'no noise', see: 'A clean transmission: <b>79 tones</b>, 160 ms each, 6.25 Hz apart, and the spectrum is a comb about 50 Hz wide. The frequency plot shows the GFSK ramps, which are what keep the signal that narrow.',
+        run: () => setEnc({ snrDb: 99 }) },
+      { label: 'SNR −15 dB', see: 'The waterfall still shows it, faintly. Everything above this is comfortable for FT8: the mode is specified down to about −20 dB in a 2500 Hz reference bandwidth.',
+        run: () => setEnc({ snrDb: -15 }) },
+      { label: 'SNR −21 dB', see: 'Now it is a faint smudge in the spectrogram and the spectrum is almost pure noise. Press <b>decode this as the loaded window</b> below and stage 1 will still find it: the decoder is not looking at the picture, it is correlating against a known 7-tone pattern.',
+        run: () => setEnc({ snrDb: -21 }) },
+      { label: 'a report, not a CQ', see: 'Message type changes the packing: a signal report is 15 bits where a grid was, and the 3-bit i3 field says which. Same 174 bits out, same 79 tones, completely different payload.',
+        run: () => setEnc({ msg: 'K1ABC KC1WIH R-08', snrDb: 99 }) },
+      { label: 'move it to 2500 Hz', see: 'Only the audio frequency changes. The bit pattern and the tone sequence are identical, which is why the decoder searches every 3.125 Hz bin with the same template.',
+        run: () => setEnc({ f0: 2500 }) },
+    ]);
     const fieldsP = panel(main, 'Packing: the 77 payload bits'); const fields = el('div', 'stats'); fieldsP.append(fields); const bitsDiv = el('div', 'bits'); fieldsP.append(bitsDiv);
     const cwP = panel(main, '77 + 14 CRC + 83 parity = 174 bits → 58 data symbols (Gray code) + 21 Costas symbols = 79 tones'); const [cvT, cvTo] = layers(cwP, 1000, 190);
     const wfP = panel(main, 'The waveform: instantaneous frequency (GFSK) and the resulting spectrogram'); const [cvF, cvFo] = layers(wfP, 1000, 120); const [cvS, cvSo] = layers(wfP, 1000, 200);

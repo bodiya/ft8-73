@@ -6,7 +6,7 @@
 // waterfall and nothing else.
 import { loadWav } from '../dsp/wav.js';
 import { spectrogram, syncSurface, syncHits, dedupeCandidates, dropToneSums } from '../dsp/sync.js';
-import { slider, select, checkbox, el, panel, canvas, layers, tabbar, caption, coalesce, button } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, layers, tabbar, caption, coalesce, button, tryThis } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, passColor, linePlot } from '../ui/draw.js';
 
 const st = { p: { fmin: 1400, fmax: 1700, dbLo: 35, dbHi: 85 }, mode: 'live', recorded: null, live: null, sig: null, recordedError: null, unsubs: [] };
@@ -51,16 +51,28 @@ export default {
     const tabs = tabbar(main, VIEWS, st.mode, id => app.setTab(id));
     if (!hasRecorded) { const b = tabs.el.querySelector('[data-tab=recorded]'); b.disabled = true; b.title = 'only for the bundled window'; }
     const cap = caption(main);
+    // The 1500 to 1600 Hz window is the clearest subtraction story in this recording: one loud pass-1
+    // decode sitting on top of three quiet ones that only clear the threshold once it is gone.
+    const zoom = (fmin, fmax) => { p.fmin = fmin; p.fmax = fmax; fminS.value = fmin; fmaxS.value = fmax; drawBgSoon(); };
+    tryThis(main, [
+      { label: 'the KY9L footprint', see: '<b>KB0PVB KY9L EM48</b> at 1551 Hz decodes on pass 1 at −6 dB. Compare the pass-1 and pass-3 waterfalls: its trace is simply gone. Three decodes inside the same 60 Hz appear only on pass 3, at 1500, 1543 and 1555 Hz, between −13 and −17 dB. They were not too weak to decode; the loud one was in the way.',
+        run: () => zoom(1500, 1600) },
+      { label: 'the same band, sync scores', see: 'The lower plot is the coarse-sync score for each pass input. The <b>1551 Hz</b> spike, over 10x the noise floor on pass 1, collapses into the noise once the signal behind it has been subtracted, which is what makes room for the quiet decodes on top of it.',
+        run: () => zoom(1480, 1620) },
+      { label: '850 to 900 Hz cluster', see: 'Five messages stacked in 70 Hz, and the passes peel them off in order of strength: 909 Hz at −4 dB on pass 2, 897 Hz at −11 dB on pass 3, then three more between −12 and −13 dB after that. Loudest first, every time.',
+        run: () => zoom(800, 1000) },
+      { label: 'whole band', see: 'All three pass inputs over 200 to 3200 Hz. Every box that appears in a lower row is a message that was unreadable until something louder was taken out from over it.',
+        run: () => zoom(200, 3200) },
+    ], () => app.name === '260726_190930' ? '' : ' <i>Numbers here were measured on the bundled window, not the one you have loaded.</i>');
     const wfP = panel(main, 'Per-pass input audio (time ↓, frequency →), boxes = decodes made on that pass');
     const cvs = [0, 1, 2].map(() => { const l = layers(wfP, 330, 360); l.box.style.display = 'inline-block'; l.box.style.marginRight = '6px'; return l; });
     const spP = panel(main, 'Coarse-sync spectrum on each pass input (÷ its own noise floor)'); const cvS = canvas(spP, 1010, 200);
     const listP = panel(main, 'Decodes by pass'); const list = el('div', 'stats'); listP.append(list);
-    slider(ctl, { label: 'freq min', min: 200, max: 3500, step: 10, value: p.fmin, fmt: v => v + ' Hz', oninput: v => { p.fmin = v; if (p.fmax <= v + 50) p.fmax = v + 50; drawBgSoon(); } });
-    slider(ctl, { label: 'freq max', min: 300, max: 4000, step: 10, value: p.fmax, fmt: v => v + ' Hz', oninput: v => { p.fmax = v; if (p.fmin >= v - 50) p.fmin = v - 50; drawBgSoon(); } });
+    const fminS = slider(ctl, { label: 'freq min', min: 200, max: 3500, step: 10, value: p.fmin, fmt: v => v + ' Hz', oninput: v => { p.fmin = v; if (p.fmax <= v + 50) p.fmax = v + 50; drawBgSoon(); } });
+    const fmaxS = slider(ctl, { label: 'freq max', min: 300, max: 4000, step: 10, value: p.fmax, fmt: v => v + ' Hz', oninput: v => { p.fmax = v; if (p.fmin >= v - 50) p.fmin = v - 50; drawBgSoon(); } });
     slider(ctl, { label: 'color floor', min: 0, max: 100, value: p.dbLo, fmt: v => v + ' dB', oninput: v => { p.dbLo = v; drawBgSoon(); } });
     slider(ctl, { label: 'color ceiling', min: 20, max: 140, value: p.dbHi, fmt: v => v + ' dB', oninput: v => { p.dbHi = v; drawBgSoon(); } });
     ctl.append(el('div', 'note', 'Presets: '));
-    for (const [a, b, l] of [[1400, 1700, '1543/1551/1555 Hz pileup'], [800, 1000, '850–900 Hz cluster'], [200, 3200, 'whole band']]) { const btn = el('button', null, l); btn.style.margin = '2px'; btn.onclick = () => { p.fmin = a; p.fmax = b; ctl.querySelectorAll('input[type=range]')[0].value = a; ctl.querySelectorAll('input[type=range]')[1].value = b; ctl.querySelectorAll('.ctl b')[0].textContent = a + ' Hz'; ctl.querySelectorAll('.ctl b')[1].textContent = b + ' Hz'; drawBgSoon(); }; ctl.append(btn); }
     const rerun = button(ctl, 'rerun the JS decoder (3 passes)', () => { app.runJsDecoder(3, [1, 2, 3]); st.live = null; refresh(); }); rerun.style.marginTop = '8px';
     ctl.append(el('div', 'note', 'The JS run uses the current stage-1 sync parameters and my-call from the encode of KC1WIH for AP. Each subtraction costs ~0.4 s in JS (8 FFTs of 180 000 points), so pass 2 appears after a few seconds.'));
     ctl.append(el('div', 'note', hasRecorded ? 'wsjtr ran with -p 3 -d 1,1,3: outer passes 1 and 2 at depth 1, pass 3 at depth 3 (BP + OSD + AP). Purple entries came from A7 cross-sequence decoding after pass 3, using callsigns heard in earlier windows.' : ''));

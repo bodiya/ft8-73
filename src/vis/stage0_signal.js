@@ -5,7 +5,7 @@
 // The noise-baseline plot depends on nothing the clock moves, so it is drawn on control changes.
 import { powerSpectrum } from '../dsp/fft.js';
 import { FS } from '../dsp/constants.js';
-import { slider, select, checkbox, el, panel, canvas, layers, coalesce } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, layers, coalesce, caption, tryThis } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, passColor, linePlot } from '../ui/draw.js';
 
 function dispSpectrogram(audio, nfft, hop) {
@@ -37,6 +37,23 @@ export default {
     const row = el('div', 'row'); root.append(row);
     const ctl = el('div', 'controls panel'); row.append(ctl);
     const main = el('div'); row.append(main);
+    const cap = caption(main); cap.set('plays the recording in real time, and the playhead is the frame the waveform and spectrum panels below are showing.', 'the vertical ladders. Each one is a single transmission: 79 tones, 160 ms each, 12.64 s from top to bottom.');
+    // Every claim below follows from FS/nfft and nfft/FS, so these hold for any window, not just
+    // the bundled one. The zoom lands on the strongest decode in this recording.
+    // freq min/max keep a 100 Hz minimum span, so the zoom below is 100 Hz wide, not tighter.
+    const setSpec = (nfft, fmin, fmax, dbLo = 35, dbHi = 85) => { p.nfft = nfft; p.hop = Math.max(120, nfft / 4); fftSel.value = nfft; hopS.value = p.hop; p.fmin = fmin; p.fmax = fmax; fminS.value = fmin; fmaxS.value = fmax; p.dbLo = dbLo; p.dbHi = dbHi; dbLoS.value = dbLo; dbHiS.value = dbHi; recompute(); };
+    tryThis(main, [
+      { label: 'one symbol per frame', see: 'A 1920-point frame is <b>6.25 Hz</b> per bin and <b>160 ms</b> long: exactly the tone spacing and exactly the symbol length. This is the analysis the mode is built around, and the tone ladders are as sharp as they get.',
+        run: () => setSpec(1920, 200, 3200) },
+      { label: 'trade time for frequency', see: 'At 7680 points the bins are <b>1.56 Hz</b>, four per tone, but every row now averages <b>640 ms</b>, which is four symbols. The ladders smear into vertical streaks. You cannot buy frequency resolution without spending time resolution.',
+        run: () => setSpec(7680, 200, 3200) },
+      { label: 'trade frequency for time', see: 'At 960 points each row is only <b>80 ms</b>, so symbol edges sharpen, but a <b>12.5 Hz</b> bin is wider than the 6.25 Hz tone spacing and the eight tones collapse into one band. Nothing downstream could read tones from this.',
+        run: () => setSpec(960, 200, 3200) },
+      { label: 'zoom to one signal', see: 'One transmission fills the view: the strongest decode in this window, at <b>737.5 Hz</b>, about <b>50 Hz</b> wide and <b>12.6 s</b> long, with the tone stepping from row to row. Raising the color floor is what makes it stand out of the band noise. The 7-tone sync pattern inside it is drawn cell by cell on <a href="#sync">stage 1</a>.',
+        run: () => setSpec(1920, 700, 800, 55, 90) },
+      { label: 'whole band again', see: 'Back to 3.125 Hz bins over 200 to 3200 Hz: about 50 transmissions in one 15 s slot.',
+        run: () => setSpec(3840, 200, 3200) },
+    ]);
     const wf = panel(main, 'Waterfall (time ↓, frequency →)'); const [cvB, cv] = layers(wf, 1060, 520);
     const hover = el('div', 'stats', ' '); wf.append(hover);
     const bottom = el('div', 'row'); main.append(bottom);
@@ -53,12 +70,12 @@ export default {
     const rebuild = () => { const k = specKey(); if (!st.spec || st.specKey !== k) { st.spec = dispSpectrogram(app.audio, p.nfft, p.hop); st.specKey = k; } };
     const recompute = coalesce(() => { rebuild(); redraw(); });
     const redrawSoon = coalesce(() => redraw());
-    select(ctl, { label: 'FFT size (frequency resolution)', options: [[960, '960 pts · 12.5 Hz · 80 ms'], [1920, '1920 pts · 6.25 Hz · 160 ms (one symbol)'], [3840, '3840 pts · 3.125 Hz · 320 ms'], [7680, '7680 pts · 1.56 Hz · 640 ms']], value: p.nfft, onchange: v => { p.nfft = +v; p.hop = Math.max(120, p.nfft / 4); hopS.value = p.hop; recompute(); } });
+    const fftSel = select(ctl, { label: 'FFT size (frequency resolution)', options: [[960, '960 pts · 12.5 Hz · 80 ms'], [1920, '1920 pts · 6.25 Hz · 160 ms (one symbol)'], [3840, '3840 pts · 3.125 Hz · 320 ms'], [7680, '7680 pts · 1.56 Hz · 640 ms']], value: p.nfft, onchange: v => { p.nfft = +v; p.hop = Math.max(120, p.nfft / 4); hopS.value = p.hop; recompute(); } });
     const hopS = slider(ctl, { label: 'hop (time step)', min: 120, max: 1920, step: 120, value: p.hop, fmt: v => `${v} smp = ${(v / 12).toFixed(0)} ms`, oninput: v => { p.hop = v; recompute(); } });
-    slider(ctl, { label: 'freq min', min: 0, max: 3000, step: 50, value: p.fmin, fmt: v => v + ' Hz', oninput: v => { p.fmin = v; if (p.fmax <= v + 100) p.fmax = v + 100; redrawSoon(); } });
-    slider(ctl, { label: 'freq max', min: 300, max: 6000, step: 50, value: p.fmax, fmt: v => v + ' Hz', oninput: v => { p.fmax = v; if (p.fmin >= v - 100) p.fmin = v - 100; redrawSoon(); } });
-    slider(ctl, { label: 'color floor', min: 0, max: 100, value: p.dbLo, fmt: v => v + ' dB', oninput: v => { p.dbLo = v; redrawSoon(); } });
-    slider(ctl, { label: 'color ceiling', min: 20, max: 140, value: p.dbHi, fmt: v => v + ' dB', oninput: v => { p.dbHi = v; redrawSoon(); } });
+    const fminS = slider(ctl, { label: 'freq min', min: 0, max: 3000, step: 50, value: p.fmin, fmt: v => v + ' Hz', oninput: v => { p.fmin = v; if (p.fmax <= v + 100) p.fmax = v + 100; redrawSoon(); } });
+    const fmaxS = slider(ctl, { label: 'freq max', min: 300, max: 6000, step: 50, value: p.fmax, fmt: v => v + ' Hz', oninput: v => { p.fmax = v; if (p.fmin >= v - 100) p.fmin = v - 100; redrawSoon(); } });
+    const dbLoS = slider(ctl, { label: 'color floor', min: 0, max: 100, value: p.dbLo, fmt: v => v + ' dB', oninput: v => { p.dbLo = v; redrawSoon(); } });
+    const dbHiS = slider(ctl, { label: 'color ceiling', min: 20, max: 140, value: p.dbHi, fmt: v => v + ' dB', oninput: v => { p.dbHi = v; redrawSoon(); } });
     const boxSel = select(ctl, { label: 'decode boxes', options: [['wsjtr', `wsjtr (${app.truth.wsjtr.length}, by pass)`], ['wsjtx', `WSJT-X (${app.truth.wsjtx.length})`], ['js', 'this JS decoder (by pass)'], ['none', 'none']], value: app.truth.wsjtr.length ? p.boxes : 'js', onchange: v => { p.boxes = v; if (v === 'js') app.ensureJsDecoder(); redraw(); } }); if (!app.truth.wsjtr.length) p.boxes = 'js';
     select(ctl, { label: 'color map', options: ['viridis', 'hot', 'blue'], value: p.cmap, onchange: v => { p.cmap = v; redraw(); } });
     slider(ctl, { label: 'volume', min: 0, max: 1, step: 0.05, value: p.volume, fmt: v => Math.round(v * 100) + '%', oninput: v => { p.volume = v; if (st.gain) st.gain.gain.value = v; } });

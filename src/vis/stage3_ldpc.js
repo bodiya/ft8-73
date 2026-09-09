@@ -5,7 +5,7 @@ import { bpWithZsum, osdDecode, osdParamsFromDepth } from '../dsp/osd.js';
 import { applyApCq, applyApMyCall, callsignToApBits, AP_CONSTRAINED_BITS } from '../dsp/ap.js';
 import { LLR_PASS_INFO } from '../dsp/llr.js';
 import { unpack77 } from '../dsp/unpack77.js';
-import { slider, select, checkbox, el, panel, canvas, caption, coalesce, button } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, caption, coalesce, button, tryThis } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, linePlot, passColor } from '../ui/draw.js';
 import { candidateTable } from './stage2_candidate.js';
 
@@ -49,6 +49,23 @@ export default {
     for (const [v, label] of VIEWS) { const b = el('button', v === st.view ? 'active' : '', label); b.dataset.tab = v; b.onclick = () => app.setTab(v); (BP_VIEWS.includes(v) ? gA : gB).append(b); tabBtns.set(v, b); }
     tabs.append(gA, el('div', 'div'), gB);
     const cap = caption(main);
+    // The LLRs are normalized to unit variance before this noise is added, so sigma is in units of
+    // "one standard deviation of the channel itself". Numbers below were read off the Result panel
+    // for the strongest candidate in the bundled window unless the label says otherwise.
+    const setNoise = (v) => { p.noise = v; slNoise.value = v; runBPSoon(); };
+    const pick = (test) => { const c = app.candidates.find(test); if (c) app.select(c); };
+    tryThis(main, [
+      { label: 'noise σ 2', see: 'Still decodes, but BP now needs <b>2</b> iterations where the clean LLRs needed <b>0</b>: the hard decisions alone were already a valid codeword. The parity checks are doing real work now.',
+        run: () => { pick(c => c === app.candidates[0]); setNoise(2); } },
+      { label: 'noise σ 3', see: 'Still decodes, in <b>6</b> iterations. Watch the heatmap: the first rows are mottled and the run cleans up from the reliable bits outward. This is belief propagation actually propagating.',
+        run: () => { pick(c => c === app.candidates[0]); setNoise(3); } },
+      { label: 'noise σ 3.5', see: 'It breaks, and it breaks sharply: no convergence in <b>30</b> iterations. There is no graceful degradation here, so a decoder gets a clean message or nothing, which is why FT8 output is never garbled text.',
+        run: () => { pick(c => c === app.candidates[0]); setNoise(3.5); } },
+      { label: 'a −17 dB signal', see: 'Every LLR set fails on this one (<b>amp/a</b> through <b>amp/e</b>, then both AP hypotheses), and the power metric never runs at all because the sync gate sees nsync = 7. The Result panel explains the ending: this message only decodes on a <a href="#passes">later pass</a>, once the loud signals have been subtracted out from under it.',
+        run: () => { setNoise(0); pick(c => { const d = app.truthFor(c); return d && d.snr <= -15; }); } },
+      { label: 'clean, strongest signal', see: 'Back to the −1 dB candidate with no added noise: BP is done before it starts, in <b>0</b> iterations, parity and CRC both satisfied.',
+        run: () => { setNoise(0); pick(c => c === app.candidates[0]); } },
+    ], () => app.name === '260726_190930' ? '' : ' <i>Numbers here were measured on the bundled window, not the one you have loaded.</i>');
     const viewP = panel(main, ' '); const cvV = canvas(viewP, 1000, 330); const vinfo = el('div', 'stats'); viewP.append(vinfo); const vctl = el('div', 'row'); vctl.style.marginTop = '6px'; viewP.append(vctl);
     const r2 = el('div', 'row'); main.append(r2);
     const convP = panel(r2, 'Convergence'); const cvC = canvas(convP, 330, 170);
@@ -62,7 +79,7 @@ export default {
     slider(ctl, { label: 'max BP iterations', min: 1, max: 100, step: 1, value: p.maxIter, oninput: v => { p.maxIter = v; runBPSoon(); } });
     checkbox(ctl, { label: 'early stop (no progress for 5 iters after 10)', value: p.earlyStop, onchange: v => { p.earlyStop = v; runBP(); } });
     slider(ctl, { label: 'LLR scale', min: 0.1, max: 4, step: 0.1, value: p.scale, fmt: v => v.toFixed(1) + '×', oninput: v => { p.scale = v; runBPSoon(); } });
-    slider(ctl, { label: 'added Gaussian noise σ', min: 0, max: 6, step: 0.1, value: p.noise, fmt: v => v.toFixed(1), oninput: v => { p.noise = v; runBPSoon(); } });
+    const slNoise = slider(ctl, { label: 'added Gaussian noise σ', min: 0, max: 6, step: 0.1, value: p.noise, fmt: v => v.toFixed(1), oninput: v => { p.noise = v; runBPSoon(); } });
     slider(ctl, { label: 'noise seed', min: 1, max: 50, step: 1, value: p.seed, oninput: v => { p.seed = v; runBPSoon(); } });
     checkbox(ctl, { label: 'draw all 522 edges', value: p.edges, onchange: v => { p.edges = v; drawView(); } });
     ctl.append(el('div', 'note', 'The decoder tries LLR sets a, b, c, d, e with the amplitude metric, then the same five with the power metric, stopping at the first success; at depth ≥ 2 each failed BP attempt falls through to OSD, and at depth 3 the CQ / MyCall a-priori passes come last. Typical LLR magnitudes are 1–5; noise σ of 2–3 is roughly a 6–9 dB weaker signal.'));

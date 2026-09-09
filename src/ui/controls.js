@@ -78,6 +78,31 @@ export function tabbar(parent, items, current, onpick) {
   return { el: bar, set(id) { for (const [k, b] of btns) b.classList.toggle('active', k === id); } };
 }
 
+/**
+ * "Try this" strip: a row of one-click experiments above a page's plots.
+ *
+ * Each item is { label, see, run }. run() applies the settings, which means setting the control
+ * widgets (so the panel agrees with what is on screen) and calling the same redraw their handlers
+ * would; see is the sentence of what to watch for, shown under the row once the button is pressed.
+ * The point is that a reader should not have to guess which knob matters or what a meaningful
+ * change looks like: the strip is the guided version of the same controls.
+ *
+ * suffix is appended to every line, and may be a function so it can be evaluated at click time:
+ * the pages use it to say so when the loaded audio is not the bundled window the numbers came from,
+ * which can change while the page stays mounted (the top bar's "open WAV").
+ */
+export function tryThis(parent, items, suffix = '') {
+  const box = el('div', 'trythis'); box.append(el('span', 'lab', 'Try this'));
+  const see = el('div', 'see'); const btns = [];
+  for (const it of items) {
+    const b = el('button', '', it.label);
+    b.onclick = () => { for (const x of btns) x.classList.remove('active'); b.classList.add('active'); it.run(); see.innerHTML = (it.see || '') + (typeof suffix === 'function' ? suffix() : suffix); };
+    box.append(b); btns.push(b);
+  }
+  box.append(see); parent.append(box);
+  return { el: box, clear() { for (const x of btns) x.classList.remove('active'); see.innerHTML = ''; } };
+}
+
 /** The "what the clock does here / what to look for" caption that sits under a tab bar. */
 export function caption(parent, cls = '') {
   const c = el('div', 'tabcap ' + cls); parent.append(c);

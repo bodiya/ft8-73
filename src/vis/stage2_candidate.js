@@ -7,7 +7,7 @@ import { decodeCandidate } from '../dsp/pipeline.js';
 import { COSTAS, GRAY_MAP_INV, costasTone, isSyncSymbol } from '../dsp/constants.js';
 import { binMag, binPower } from '../dsp/finesync.js';
 import { NP2 } from '../dsp/downsample.js';
-import { slider, select, checkbox, el, panel, canvas, layers, coalesce } from '../ui/controls.js';
+import { slider, select, checkbox, el, panel, canvas, layers, coalesce, caption, tryThis } from '../ui/controls.js';
 import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, passColor, linePlot } from '../ui/draw.js';
 
 const st = { p: { dtNudge: 0, freqNudge: 0, power: false, depth: 3, showBits: false }, trace: null, traceKey: null, unsubs: [] };
@@ -33,6 +33,26 @@ export default {
     const row = el('div', 'row'); root.append(row);
     const ctl = el('div', 'controls panel'); row.append(ctl);
     const main = el('div'); main.style.flex = '1'; row.append(main);
+    const cap = caption(main); cap.set('steps through the 79 symbols, one every 160 ms, and the cursor marks that symbol in the grid and in the baseband envelope.', 'the white dot, the strongest tone in each column, sitting inside the orange box on all 21 Costas symbols. Counting those is exactly what nsync does.');
+    // Each experiment starts from a clean alignment and moves one thing, so the numbers below hold
+    // whichever you press first. All of them were read off the Readout panel for the default
+    // candidate (737.5 Hz, the strongest decode in the bundled window).
+    const D = { dtNudge: 0, freqNudge: 0, power: false, showBits: false, depth: 3 };
+    const expt = (over) => { Object.assign(p, D, over); slDt.value = p.dtNudge; slDf.value = p.freqNudge; cbBits.value = p.showBits; cbPow.value = p.power; run(); };
+    tryThis(main, [
+      { label: 'time off by 50 ms', see: 'Nothing breaks: <b>nsync 21/21</b>, <b>0</b> hard bit errors, same message. A third of a symbol of timing error costs nothing, which is why the coarse search only has to land within about half a symbol.',
+        run: () => expt({ dtNudge: 10 }) },
+      { label: 'time off by 70 ms', see: 'Now it hurts but holds: <b>nsync 13/21</b> and <b>14 of 174</b> bits come out wrong, and the message still decodes. Those 14 errors are what the LDPC code is there to absorb.',
+        run: () => expt({ dtNudge: 14 }) },
+      { label: 'time off by 80 ms', see: 'Half a symbol, and it falls off a cliff: <b>nsync 3/21</b>, the sync gate reads <b>blocked</b>, and the decoder abandons the candidate before doing any LDPC work at all. Cheap test first, expensive work second.',
+        run: () => expt({ dtNudge: 16 }) },
+      { label: 'frequency off by 3 Hz', see: 'Half a tone spacing (tones are 6.25 Hz apart): <b>nsync 13/21</b> and <b>20 of 174</b> bits wrong, and it still decodes. At 4 Hz the gate blocks it instead, so the whole usable window is about ±3 Hz.',
+        run: () => expt({ freqNudge: 3 }) },
+      { label: 'label the Gray bits', see: 'Each data column now shows the 3 bits its tone carries. Gray coding means neighbouring tones differ in one bit, so the most likely confusion costs one bit rather than three. These 174 bits are what stage 3 receives.',
+        run: () => expt({ showBits: true }) },
+      { label: 'perfect alignment', see: 'Back to the decoder\'s own fine sync: <b>nsync 21/21</b>, <b>0</b> hard errors, <b>CQ W3JFK FM09</b>.',
+        run: () => expt({}) },
+    ], () => app.name === '260726_190930' ? '' : ' <i>Numbers here were measured on the bundled window, not the one you have loaded.</i>');
     const gridP = panel(main, 'Tone grid: 79 symbols (→) × 8 tones (↑). Orange = expected Costas tone, dot = strongest tone, green = tone of the decoded message where it differs'); const [cvG, cvGo] = layers(gridP, 1000, 230);
     const bbP = panel(main, 'Baseband envelope |x(t)| at 200 Hz with the symbol boundaries'); const [cvB, cvBo] = layers(bbP, 1000, 100);
     const curves = el('div', 'row'); main.append(curves);
@@ -42,10 +62,10 @@ export default {
     const infoP = panel(main, 'Readout'); const info = el('div', 'stats'); infoP.append(info);
     const pickP = panel(main, 'Pick a candidate'); const renderTable = candidateTable(pickP, app, c => app.select(c));
 
-    slider(ctl, { label: 'time nudge (after fine sync)', min: -32, max: 32, step: 1, value: p.dtNudge, fmt: v => `${v} smp = ${(v * 5)} ms`, oninput: v => { p.dtNudge = v; runSoon(); } });
-    slider(ctl, { label: 'frequency nudge (after fine sync)', min: -8, max: 8, step: 0.25, value: p.freqNudge, fmt: v => v.toFixed(2) + ' Hz', oninput: v => { p.freqNudge = v; runSoon(); } });
-    checkbox(ctl, { label: 'show power |x|² instead of magnitude', value: p.power, onchange: v => { p.power = v; drawGridBg(); drawOverlays(); } });
-    checkbox(ctl, { label: 'label cells with Gray-decoded 3-bit values', value: p.showBits, onchange: v => { p.showBits = v; drawGridBg(); drawOverlays(); } });
+    const slDt = slider(ctl, { label: 'time nudge (after fine sync)', min: -32, max: 32, step: 1, value: p.dtNudge, fmt: v => `${v} smp = ${(v * 5)} ms`, oninput: v => { p.dtNudge = v; runSoon(); } });
+    const slDf = slider(ctl, { label: 'frequency nudge (after fine sync)', min: -8, max: 8, step: 0.25, value: p.freqNudge, fmt: v => v.toFixed(2) + ' Hz', oninput: v => { p.freqNudge = v; runSoon(); } });
+    const cbPow = checkbox(ctl, { label: 'show power |x|² instead of magnitude', value: p.power, onchange: v => { p.power = v; drawGridBg(); drawOverlays(); } });
+    const cbBits = checkbox(ctl, { label: 'label cells with Gray-decoded 3-bit values', value: p.showBits, onchange: v => { p.showBits = v; drawGridBg(); drawOverlays(); } });
     select(ctl, { label: 'depth (sync gate strictness)', options: [[1, '1: need nsync > 8'], [2, '2: need nsync > 8'], [3, '3: nsync > 6 (amp) / > 7 (pow)']], value: p.depth, onchange: v => { p.depth = +v; run(); } });
     ctl.append(el('div', 'note', 'nsync counts how many of the 21 Costas symbols have their expected tone as the strongest bin. Below the gate the candidate is abandoned before any LDPC work. The nudges are applied after the decoder\'s own refinement, so they show what would happen if fine sync had landed there.'));
     const goto = el('div', 'note'); goto.innerHTML = '<a href="#ldpc" style="color:var(--accent)">→ take these tones to stage 3 (LLRs + LDPC)</a>'; ctl.append(goto);

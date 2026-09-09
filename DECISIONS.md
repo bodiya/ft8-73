@@ -146,6 +146,25 @@ On the UI side:
 - The clock emits to every subscriber on every animation frame. Pages now guard themselves, so
   this is only wasted dispatch, but a 120 Hz display does twice the work for nothing.
 
+## 8. Guided experiments ("Try this")
+
+Every stage has a strip of one-click experiments above its plots, built by `tryThis()` in
+`controls.js`. Each one starts from that page's defaults and changes a single knob, so the outcome
+quoted under the row holds whichever button you press first.
+
+- Every number in those lines was read off the running page on the bundled window, not estimated.
+  Stage 0's claims are the only ones that hold for any audio, since they follow from FS/nfft.
+- Because of that they carry a caveat line when a different WAV is loaded, evaluated at click time
+  (`app.name` can change while a page stays mounted). If the defaults or the bundled window ever
+  change, these strings need re-measuring: click each button and read the Counts, Readout or
+  Result panel.
+- Stage 4's three ad-hoc zoom buttons were folded into its strip, so the zooms now come with a
+  reason to look.
+- `cdp_check.mjs` clicks every experiment on every page, so a broken one fails the check.
+
+Still open: the tour on the home page hard-codes the same numbers in prose, so it has the same
+re-measuring cost, and nothing enforces that the two agree.
+
 ## How to resume
 
 ```bash
