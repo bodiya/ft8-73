@@ -6,7 +6,7 @@
 <title>Seven Threes · how an FT8 decoder works</title>
 <meta name="description" content="Interactive visualizations of how an FT8 decoder works, one DSP stage at a time. The real algorithms, running in your browser on a recorded 15 s window.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0f1218">
+<meta name="theme-color" content="#171c26">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f1218'/%3E%3Crect x='3' y='3' width='2' height='10' fill='%234ea1ff'/%3E%3Crect x='7' y='5' width='2' height='8' fill='%233ddc97'/%3E%3Crect x='11' y='2' width='2' height='11' fill='%23ffd166'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="src/ui/styles.css">
 <!-- The window is 317 KB and is the last thing in the critical chain (html, app.js and its module
@@ -20,7 +20,16 @@
 <header id="topbar">
   <a class="brand" href="#home">Seven Threes</a>
   <nav id="nav"></nav>
-  <label class="filebtn" title="Load a 12 kHz (or any rate) mono WAV of one FT8 slot">📂 open WAV<input id="wavfile" type="file" accept=".wav,audio/wav" hidden></label><button id="btn-example" class="filebtn" title="Back to the bundled window">example</button><div id="loadstatus">loading…</div>
+  <div class="tools">
+    <label class="filebtn" for="wavfile" title="Load a 12 kHz (or any rate) mono WAV of one FT8 slot">📂 open WAV</label>
+    <!-- accept is broad on purpose: iOS resolves it to UTIs and ignores a bare extension, and
+         Android filters on whatever MIME type the content provider reports for the file, which for
+         a WAV in Drive or Downloads is often audio/x-wav or application/octet-stream. parseWav()
+         rejects anything that is not RIFF with a clear message, so a wide filter costs nothing. -->
+    <input id="wavfile" class="vh" type="file" accept="audio/wav,audio/x-wav,audio/wave,audio/vnd.wave,audio/*,.wav">
+    <button id="btn-example" class="filebtn" title="Back to the bundled window">example</button>
+    <div id="loadstatus">loading…</div>
+  </div>
 </header>
 <div id="transport">
   <button id="btn-play" title="space">▶</button>
@@ -39,6 +48,10 @@
 </footer>
 <script>
 if (location.protocol === 'file:') {
+  // Hide the chrome too: a dead nav and a non-functional transport above the explanation is most
+  // of a phone screen spent on controls that cannot work here.
+  document.getElementById('topbar').hidden = true;
+  document.getElementById('transport').hidden = true;
   document.getElementById('loadstatus').textContent = 'not served over HTTP';
   document.getElementById('stage').innerHTML = '<div class="panel" style="max-width:720px"><h3>This page has to be served over HTTP</h3><p class="note">Browsers block ES modules and fetch() on file:// URLs. From the repo directory run one of:</p><pre style="font-size:13px">npm start\npython3 -m http.server 8765\nnpx serve .</pre><p class="note">then open <a href="http://localhost:8765/" style="color:var(--accent)">http://localhost:8765/</a></p></div>';
 }

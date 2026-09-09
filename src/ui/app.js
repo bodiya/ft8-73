@@ -3,7 +3,8 @@ import { loadWav } from '../dsp/wav.js';
 import { spectrogram, syncSurface, syncHits, dedupeCandidates } from '../dsp/sync.js';
 import { DecodeContext } from '../dsp/pipeline.js';
 import { Clock } from './clock.js';
-import { clearHeatmapCache } from './draw.js';
+import { clearHeatmapCache, setHeatmapBudget } from './draw.js';
+import { dpr, constrained } from './controls.js';
 import { FS } from '../dsp/constants.js';
 
 // Every runtime URL is resolved against this module, not against the document, so the app works
@@ -21,13 +22,23 @@ const STAGES = [
   { id: 'encode', title: 'E · Encode', load: () => import('../vis/stage5_encode.js') },
 ];
 
-/** requestIdleCallback with a timeout fallback (Safari only shipped rIC in 18.2). */
-const idle = (fn, timeout = 1500) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout }) : setTimeout(fn, 60));
+/**
+ * requestIdleCallback with a timeout fallback (Safari has been slow to ship it, so a phone is
+ * exactly where the fallback runs). Honour the timeout there instead of using a flat 60 ms:
+ * warm() asks for 800 ms and getBaseline() for 3000 ms specifically so their work lands after
+ * first paint rather than on top of the ~570 ms of DSP setAudio() has just done.
+ */
+const idle = (fn, timeout = 1500) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout }) : setTimeout(fn, Math.min(timeout, 300)));
 /** localStorage is unavailable or throws in some privacy modes; never let that break a page. */
 const store = {
   get(k) { try { return localStorage.getItem('ft8fd:' + k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem('ft8fd:' + k, v); } catch { } },
 };
+
+// 32 MB of cached offscreen renders is a desktop budget. On a phone that competes with the DSP
+// state for a per-tab allowance iOS enforces by blanking canvases, and with responsive plot sizes
+// the renders are ~3x smaller anyway, so the smaller ceiling costs almost no hit rate.
+if (constrained()) setHeatmapBudget(8, 2e6);
 
 export const app = {
   clock: new Clock(),
@@ -78,7 +89,13 @@ export const app = {
     // With a reference decode list in hand the JS run is only needed for stage 4 and the "this JS
     // decoder" overlays, so it waits for an idle moment instead of competing with first paint.
     // Without one it is the only reference there is, so it starts now.
-    if (this.truth.wsjtr && this.truth.wsjtr.length) this.warm(); else this.runJsDecoder();
+    // A full 3-pass decode is ~19 s of one core on a desktop and closer to a minute on a phone,
+    // most of it in subtraction. Without a reference list it is the only decode list there is, so
+    // a constrained device still gets one, just the single-pass depth-3 version; stage 4 asks for
+    // all three passes itself when you open the view that teaches them.
+    if (this.truth.wsjtr && this.truth.wsjtr.length) this.warm();
+    else if (constrained()) { this.warm(); this.runJsDecoder(1, [3]); }
+    else this.runJsDecoder();
   },
   /**
    * Precompute the expensive shared objects while the browser is idle, so no page pays for them.
@@ -95,12 +112,24 @@ export const app = {
       idle(() => this.getBaseline().catch(() => { }), 3000);
     }, 800);
   },
-  /** Start the background 3-pass JS decode unless it has already run or is running. */
-  ensureJsDecoder() { if (this.worker || (this.truth && this.truth.js && this.truth.js.length)) return; this.runJsDecoder(); },
+  /**
+   * Start the background JS decode unless a run that deep has already happened or is running.
+   * `jsPasses` matters because a constrained device gets the cheap single-pass schedule on load
+   * (see setAudio): stage 4, which is about subtraction, still has to be able to ask for all three.
+   */
+  jsPasses: 0,
+  ensureJsDecoder(passes = 3, depths = [1, 2, 3]) {
+    // A deeper request pre-empts a shallower run: a constrained device starts one pass on load, and
+    // stage 4's live view then asks for three. Bailing on any live worker would leave that view
+    // waiting forever for passes it had already been told were coming.
+    if (this.worker && this.jsPasses >= passes) return;
+    if (this.truth && this.truth.js && this.truth.js.length && this.jsPasses >= passes) return;
+    this.runJsDecoder(passes, depths);
+  },
   /** Run the JS decoder (multi-pass when subtraction is available) in a worker; fills truth.js. */
   runJsDecoder(passes = 3, depths = [1, 2, 3]) {
     if (this.worker) this.worker.terminate();
-    this.workerError = null; this.jsPassInputs = []; this.truth.js = [];
+    this.workerError = null; this.jsPassInputs = []; this.truth.js = []; this.jsPasses = passes;
     const w = this.worker = new Worker(new URL('../dsp/worker.js', import.meta.url), { type: 'module' });
     const id = ++this._jobId; const label = this.name || 'window';
     w.onmessage = ev => { const m = ev.data; if (m.id !== id) return;
@@ -155,9 +184,19 @@ clock.subscribe((c, kind) => {
   if (kind !== 'seek') $('scrub').value = c.duration ? c.t / c.duration : 0;
   $('clock-readout').textContent = app.clockFormat ? app.clockFormat(c.t, c) : c.t.toFixed(2) + ' s';
 });
-// rAF stops while the tab is hidden and the clock is clamped, but WebAudio keeps playing. On
-// return, tell the pages to re-seek their audio so the playhead and the sound agree again.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && clock.playing) clock._emit('seek'); });
+// rAF stops while the tab is hidden but WebAudio keeps playing, so a backgrounded phone goes on
+// making sound with a frozen playhead. Pause on the way out (the pages stop their buffer source on
+// 'pause') and resume on the way back in; a constrained device also drops the decoder worker,
+// which iOS would otherwise leave pinning a core behind a switched-away tab.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    app._resumeOnShow = clock.playing;
+    clock.pause();
+    if (app.worker && constrained()) { app.worker.terminate(); app.worker = null; app.jsPasses = 0; }
+  } else if (app._resumeOnShow) { app._resumeOnShow = false; clock.play(); }
+  else if (clock.playing) clock._emit('seek');
+});
+window.addEventListener('pagehide', () => { clock.pause(); if (app.worker) { app.worker.terminate(); app.worker = null; app.jsPasses = 0; } });
 document.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; if (e.code === 'Space') { e.preventDefault(); clock.toggle(); } if (e.code === 'Home') clock.stop(); });
 
 // ---- load your own WAV ----
@@ -194,16 +233,52 @@ async function route(force = false) {
   for (const a of nav.children) a.classList.toggle('active', a.dataset.id === s.id);
   // A view change inside the same page is not a navigation: keep the mounted page and let it swap.
   if (samePage && current.setTab) { current.setTab(app.tab); return; }
-  if (current && current.unmount) current.unmount();
+  // Drop the reference before awaiting: two navigations in flight would otherwise both reach the
+  // same module's unmount(), and a second unmount can undo what the winner has already set up.
+  const prev = current; current = null;
+  if (prev && prev.unmount) prev.unmount();
   app.clockFormat = null;
   clock.pause();
+  clearHeatmapCache();   // every entry belongs to the page just unmounted; the new one starts cold anyway
   const root = $('stage'); root.innerHTML = '';
   const mod = await s.load();
   if (token !== routeToken) return;   // a newer navigation won while this module was loading
   current = mod.default;
   current.mount(root, app);
+  layoutKey = readLayoutKey();
 }
 window.addEventListener('hashchange', () => route());
+
+// ---- viewport changes ----
+// Pages size their canvases from the column they sit in, so a rotation or a desktop zoom has to
+// rebuild them. The key is the quantized layout width plus the device pixel ratio, and comparing
+// it is what makes this safe on a phone: iOS fires resize continuously while its URL bar collapses
+// during a scroll, and Android fires one whenever the keyboard opens over a text field. Neither
+// changes the width, so both expire into a no-op. clientWidth, never innerWidth: under mobile
+// emulation innerWidth tracks the overflow rather than the layout viewport.
+let layoutKey = '';
+const readLayoutKey = () => Math.round(document.documentElement.clientWidth / 10) + '@' + dpr();
+let rzTimer = 0;
+function viewportChanged() {
+  clearTimeout(rzTimer);
+  rzTimer = setTimeout(() => {
+    const k = readLayoutKey(); if (k === layoutKey) return; layoutKey = k;
+    relayout();
+  }, 200);
+}
+window.addEventListener('resize', viewportChanged, { passive: true });
+window.addEventListener('orientationchange', () => requestAnimationFrame(viewportChanged));
+/**
+ * Ask the current page to rebuild at the new width. Pages expose resize() the same way they expose
+ * setTab: assigned in mount, nulled in unmount. The fallback remount is a last resort because
+ * route() pauses the clock, wipes the DOM and (on stage 0 and 5) suspends the AudioContext, so it
+ * restores the transport position and scroll around it.
+ */
+function relayout() {
+  if (current && current.resize) { try { current.resize(); return; } catch (e) { console.warn('resize hook failed', e); } }
+  const t = clock.t, playing = clock.playing, y = window.scrollY;
+  route(true).then(() => { clock.seek(t); if (playing) clock.play(); window.scrollTo(0, y); });
+}
 
 // ---- load data ----
 (async () => {

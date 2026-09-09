@@ -2,18 +2,26 @@
 //
 // Drawing is split into a background layer that depends only on the controls (message, audio
 // frequency, SNR) and a transparent overlay that carries the playhead. The background holds the
-// two expensive plots: a 337-frame spectrogram and a 192 000-point spectrum of the whole
+// two expensive plots: a 372-frame spectrogram and a 192 000-point spectrum of the whole
 // transmission. They are redrawn when you change a control, not 60 times a second.
 import { pack77, describeBits77 } from '../dsp/pack77.js';
 import { appendCrc, ldpcEncode, crc14 } from '../dsp/ldpc.js';
 import { tonesFromBits77 } from '../dsp/pipeline.js';
 import { GRAY_MAP, COSTAS, isSyncSymbol, FS } from '../dsp/constants.js';
 import { powerSpectrum } from '../dsp/fft.js';
-import { slider, select, checkbox, el, panel, canvas, layers, coalesce, button, caption, tryThis } from '../ui/controls.js';
-import { heatmap, axisX, axisY, ticks, text, hline, vline, clear, linePlot } from '../ui/draw.js';
+import { slider, select, checkbox, el, panel, canvas, layers, coalesce, debounce, button, caption, tryThis, textInput, fitW, resizePlot, isNarrow, coarse } from '../ui/controls.js';
+import { heatmap, axisX, axisY, ticks, tickCount, text, hline, vline, clear, linePlot } from '../ui/draw.js';
 
 const st = { p: { msg: 'CQ KC1WIH FN42', f0: 1000, snrDb: 99, volume: 0.5 }, sig: null, an: null, token: 0, unsubs: [], audioCtx: null, src: null };
 const FIELD_COLORS = ['#4ea1ff', '#ff8c42', '#3ddc97', '#ffd166', '#c792ea', '#8b93a3', '#4ea1ff', '#ff8c42'];
+const EXAMPLES = ['CQ KC1WIH FN42', 'KC1WIH K1ABC -12', 'K1ABC KC1WIH R-08', 'KC1WIH K1ABC RR73', 'CQ POTA WA9TT EN54', 'CQ KC1WIH/QRP', 'KC1WIH/P K1ABC FN42', 'KC1WIH TNX 73'];
+// The one plot here that must not shrink: 79 columns, each labelled with its 3 bits. "010" at the
+// 7 px monospace of the labels measures 12.6 px, so a column narrower than 13 px is unreadable and
+// below ~210 px of canvas the cells stop existing. 79 * 13 + L + 8 = 1080; the panel scrolls when
+// the screen cannot hold that, and drawOverlays() drives the scroll from the transport clock.
+const TONE_W = 1080;
+// Costas block edges: the only gridlines worth drawing when 80 of them would fuse into a haze.
+const STRUCT_LINES = [0, 7, 36, 43, 72, 79];
 let synth = null; // { synthesizeFt8 } from subtract.js, loaded lazily
 
 function stopAudio() { if (st.src) { try { st.src.stop(); } catch { } st.src = null; } }
@@ -25,17 +33,29 @@ export default {
     root.append(el('p', 'blurb', 'Type a message and watch it become a transmission. Standard messages pack two callsigns into 28 bits each (base-37 arithmetic over the allowed characters), a grid or report into 15 bits, and a 3-bit type. A 14-bit CRC is appended, the (174,91) LDPC code adds 83 parity bits, the 174 bits are cut into 58 three-bit symbols, Gray-mapped to tones 0–7, and the three Costas arrays are inserted at symbols 0, 36 and 72. Each tone lasts 160 ms; the frequency ramps smoothly between tones (Gaussian-filtered FSK, BT = 2) so the signal stays only ~50 Hz wide. Press play to hear it and to step through the symbols.'));
     const row = el('div', 'row'); root.append(row);
     const ctl = el('div', 'controls panel'); row.append(ctl);
-    const main = el('div'); main.style.flex = '1'; row.append(main);
-    const msgW = el('div', 'ctl'); msgW.innerHTML = '<div class="lab">message</div>'; const msgIn = el('input'); msgIn.type = 'text'; msgIn.value = p.msg; msgIn.style.fontFamily = 'monospace'; msgIn.oninput = () => { p.msg = msgIn.value.toUpperCase(); encodeSoon(); }; msgW.append(msgIn); ctl.append(msgW);
-    const ex = el('div', 'note'); ex.innerHTML = 'try: '; for (const m of ['CQ KC1WIH FN42', 'KC1WIH K1ABC -12', 'K1ABC KC1WIH R-08', 'KC1WIH K1ABC RR73', 'CQ POTA WA9TT EN54', 'CQ KC1WIH/QRP', 'KC1WIH/P K1ABC FN42', 'KC1WIH TNX 73']) { const a = el('a', null, m); a.href = '#'; a.style.cssText = 'color:var(--accent);margin-right:8px;font-family:monospace'; a.onclick = e => { e.preventDefault(); p.msg = m; msgIn.value = m; encodeSoon(); }; ex.append(a); } ctl.append(ex);
+    const main = el('div', 'stagemain'); row.append(main);
+    const msgIn = textInput(ctl, { label: 'message', value: p.msg, oninput: v => { p.msg = v.toUpperCase(); encodeSoon(); } });
+    // The example messages are the fastest way through the message types, and they were 14 px links
+    // 8 px apart. Same anchors, same preventDefault: only the hit target changes, to the shape of a
+    // "Try this" button. Wrapped rather than swiped, because this is a list to read down.
+    const ex = el('div', 'trythis'); ex.append(el('span', 'lab', 'try'));
+    const exStrip = el('div', 'strip'); exStrip.style.flexWrap = 'wrap';
+    const exStyle = 'display:inline-flex;align-items:center;background:var(--line);color:var(--ink);border-radius:4px;font-size:12px;white-space:nowrap;text-decoration:none;font-family:ui-monospace, Menlo, Consolas, monospace;'
+      + (coarse() ? 'min-height:44px;padding:0 14px' : 'padding:3px 10px');
+    for (const m of EXAMPLES) { const a = el('a', null, m); a.href = '#'; a.style.cssText = exStyle; a.onclick = e => { e.preventDefault(); p.msg = m; msgIn.value = m; encodeSoon(); }; exStrip.append(a); }
+    ex.append(exStrip); ctl.append(ex);
+
     ctl.append(el('div', 'note', 'A whole QSO first, then the other message types: an activity call, a nonstandard call (type 4, where the other station travels as a 12-bit hash), a /P call in the EU VHF type, and 13-character free text. Every one packs to the same 77 bits as WSJT-X\'s own ft8code. Free text carries no callsign field, so it identifies nobody on its own: keep your call in it.'));
     const slF0 = slider(ctl, { label: 'audio frequency', min: 200, max: 3000, step: 25, value: p.f0, fmt: v => v + ' Hz', oninput: v => { p.f0 = v; encodeSoon(); } });
     const slSnr = slider(ctl, { label: 'add noise: SNR', min: -26, max: 30, step: 1, value: p.snrDb > 50 ? 30 : p.snrDb, fmt: v => v >= 30 ? 'none' : v + ' dB (2500 Hz)', oninput: v => { p.snrDb = v >= 30 ? 99 : v; encodeSoon(); } });
     slider(ctl, { label: 'volume', min: 0, max: 1, step: 0.05, value: p.volume, fmt: v => Math.round(v * 100) + '%', oninput: v => { p.volume = v; if (st.gain) st.gain.gain.value = v; } });
-    const useBtn = button(ctl, 'decode this as the loaded window →', () => { if (st.audio) { app.setAudio(st.audio, 'synth ' + p.msg, null); location.hash = '#sync'; } }); useBtn.style.marginTop = '6px';
+    // The synthesis is debounced, so the audio in st.audio can be a keystroke behind the box:
+    // await it here rather than handing the decoder the message the typist has already changed.
+    const useBtn = button(ctl, 'decode this as the loaded window →', async () => { await synthesize(); if (st.audio) { app.setAudio(st.audio, 'synth ' + p.msg, null); location.hash = '#sync'; } });
+    useBtn.style.marginTop = '6px';
     ctl.append(el('div', 'note', 'That button replaces the loaded audio with this synthetic transmission (plus noise) so every other page decodes it. "example" in the top bar restores the recorded window.'));
 
-    const cap = caption(main); cap.set('plays the synthesized transmission and steps the symbol cursor through all 79 tones.', 'the three Costas blocks in the tone plot, at symbols 0, 36 and 72. Everything stage 1 does is a search for that pattern.');
+    const cap = caption(main);
     // The button that hands this audio to the decoder is the point of the page: everything here is
     // synthesized, so you can push it to the edge and then watch the real decoder cope.
     const setEnc = (over) => { Object.assign(p, over); msgIn.value = p.msg; slF0.value = p.f0; slSnr.value = p.snrDb > 50 ? 30 : p.snrDb; encodeSoon(); };
@@ -52,17 +72,50 @@ export default {
         run: () => setEnc({ f0: 2500 }) },
     ]);
     const fieldsP = panel(main, 'Packing: the 77 payload bits'); const fields = el('div', 'stats'); fieldsP.append(fields); const bitsDiv = el('div', 'bits'); fieldsP.append(bitsDiv);
-    const cwP = panel(main, '77 + 14 CRC + 83 parity = 174 bits → 58 data symbols (Gray code) + 21 Costas symbols = 79 tones'); const [cvT, cvTo] = layers(cwP, 1000, 190);
-    const wfP = panel(main, 'The waveform: instantaneous frequency (GFSK) and the resulting spectrogram'); const [cvF, cvFo] = layers(wfP, 1000, 120); const [cvS, cvSo] = layers(wfP, 1000, 200);
+    const cwP = panel(main, '77 + 14 CRC + 83 parity = 174 bits → 58 data symbols (Gray code) + 21 Costas symbols = 79 tones');
+    // This panel, and only this one, is a horizontal scroller: the tone row keeps its natural width.
+    cwP.style.overflowX = 'auto'; cwP.style.overscrollBehaviorX = 'contain';
+    const tone = layers(cwP, TONE_W, 166); const [cvT, cvTo] = tone;
+    // .layers is max-width:100%, which would clamp the box to the panel and leave the canvases
+    // hanging outside the scrollable area; and the plot has no horizontal gesture of its own, so
+    // give the finger back to the scroller (canvas is touch-action:pan-y by default).
+    tone.box.style.maxWidth = 'none';
+    for (const c of tone) c.style.touchAction = 'pan-x pan-y';
+    // Sticky so the legend stays put while the tone row scrolls under it.
+    const toneNote = el('div', 'note', 'orange = Costas sync [3 1 4 0 6 5 2]; blue = data. Rows are tone 7 at the top down to tone 0 at the bottom. Under each column: its 3 bits (Gray code: 000→0 001→1 011→2 010→3 101→4 110→5 100→6 111→7)');
+    toneNote.style.cssText = 'position:sticky;left:0;margin-top:6px'; cwP.append(toneNote);
+
+    const wfP = panel(main, 'The waveform: instantaneous frequency (GFSK) and the resulting spectrogram');
+    const freq = layers(wfP, 1000, 120); const [cvF, cvFo] = freq;
+    wfP.append(el('div', 'note', 'Instantaneous frequency of the modulator: Gaussian-smoothed steps between tones (BT = 2), 240-sample amplitude ramps at both ends.'));
+    const spec = layers(wfP, 1000, 200); const [cvS, cvSo] = spec;
     const spP = panel(main, 'Spectrum of the whole transmission'); const cvP = canvas(spP, 1000, 140);
+    spP.append(el('div', 'note', 'Dashed: the 8 tone frequencies f0 + n × 6.25 Hz. The occupied bandwidth is ≈ 50 Hz.'));
+
+    const L = 44, T = 6, BOT = 22;   // BOT: room under the tone rows for the 3-bit column labels
+    let toneOff = 0;                 // x of the tone canvas inside cwP's scrolled content
+    /** Canvas sizes for the current viewport. Only the tone row keeps its desktop width. */
+    function layout() {
+      const narrow = isNarrow();
+      resizePlot(tone, TONE_W, narrow ? 132 : 166);
+      resizePlot(freq, fitW(wfP, 1000), narrow ? 110 : 120);
+      resizePlot(spec, fitW(wfP, 1000), narrow ? 240 : 200);   // taller on a phone: 42 columns of waterfall over 15 s
+      resizePlot(cvP, fitW(spP, 1000), 140);
+      toneOff = cvT.getBoundingClientRect().left - cwP.getBoundingClientRect().left + cwP.scrollLeft;
+      cap.set('plays the synthesized transmission and steps the symbol cursor through all 79 tones.' + (toneScroll() > 1 ? ' The tone row scrolls to keep the cursor in view.' : ''),
+        'the three Costas blocks in the tone plot, at symbols 0, 36 and 72. Everything stage 1 does is a search for that pattern.');
+    }
+    const toneScroll = () => cwP.scrollWidth - cwP.clientWidth;
 
     let enc = null;
-    // Typing a callsign fires an input event per keystroke and each one is a pack, an LDPC
-    // encode, a GFSK synthesis, 372 FFTs of 3840 points and one of 192 000. Coalesce to one run
-    // per frame; because the run is longer than a frame this settles into "run, then run again
-    // with whatever is in the box now", which is the right behavior for a drag or a fast typist.
+    // Typing a callsign fires an input event per keystroke. The pack, the LDPC encode and the tone
+    // plot are sub-millisecond and are what the typist is watching, so they run on the keystroke,
+    // coalesced to one per frame. The synthesis behind them is not: 372 FFTs of 3840 points and one
+    // of 192 000 measure 215 ms on a desktop and ~0.7 s on a phone, which is 40 frames of backlog
+    // per keystroke. Those wait for the typing to stop.
     const encodeSoon = coalesce(() => encode());
-    function encode() {
+    const synthSoon = debounce(() => synthesize(), 250);
+    function encode(now = false) {
       const packed = pack77(p.msg); if (!packed) { fields.innerHTML = '<b>cannot pack this message</b>'; enc = null; return; }
       const bits91 = appendCrc(packed.bits); const cw = ldpcEncode(bits91); const { tones } = tonesFromBits77(packed.bits);
       enc = { packed, bits91, cw, tones, crc: crc14(packed.bits) };
@@ -71,13 +124,13 @@ export default {
       let html = ''; const fl = desc.fields || packed.fields || []; for (let i = 0; i < 77; i++) { const fi = fl.findIndex(f => i >= f.start && i < f.start + f.len); html += `<span style="color:${fi >= 0 ? FIELD_COLORS[fi % FIELD_COLORS.length] : '#8b93a3'}" title="bit ${i}${fi >= 0 ? ': ' + fl[fi].name : ''}">${packed.bits[i]}</span>`; if (fi >= 0 && i === fl[fi].start + fl[fi].len - 1) html += ' '; }
       html += ` <span class="f4">${Array.from(bits91.slice(77)).join('')}</span> <span class="note">← CRC-14 = 0x${enc.crc.toString(16).toUpperCase()}</span>`;
       bitsDiv.innerHTML = html;
-      drawTonesBg(); drawOverlays();
-      synthesize();
+      drawTonesBg(); drawOverlays(true);
+      if (now) synthesize(); else synthSoon();
     }
     const sigOf = () => `${p.msg}|${p.f0}|${p.snrDb}`;
     async function synthesize() {
       const key = sigOf();
-      if (st.sig === key && st.audio && st.an && st.an.sig === key) { drawWaveBg(); drawOverlays(); return; }
+      if (st.sig === key && st.audio && st.an && st.an.sig === key) { drawWaveBg(); drawOverlays(true); return; }
       st.sig = key; st.an = null;
       if (!synth) { try { synth = await import('../dsp/subtract.js'); } catch (e) { synth = null; wfP.querySelector('h3').textContent = 'Waveform synthesis (GFSK) not available yet: ' + e.message; return; } }
       if (token !== st.token) return;   // unmounted while the module was loading
@@ -91,32 +144,35 @@ export default {
       }
       for (let i = 0; i < wave.length && start + i < total; i++) audio[start + i] += amp * wave[i];
       st.audio = audio; st.wave = wave; st.buf = null;
-      drawWaveBg(); drawOverlays();
+      drawWaveBg(); drawOverlays(true);
     }
-    const L = 44, T = 6;
     const curSym = () => Math.max(0, Math.min(78, Math.floor((app.clock.t - 0.5) / 0.16)));
 
     // ---- background layers: everything that depends only on the controls ----
     function drawTonesBg() {
-      const g = cvT.g; clear(cvT); if (!enc) return; const W = cvT.w - L - 8, H = cvT.h - T - 46; const cw = W / 79, ch = H / 8;
+      const g = cvT.g; clear(cvT); if (!enc) return; const W = cvT.w - L - 8, H = cvT.h - T - BOT; const cw = W / 79, ch = H / 8;
       for (let s = 0; s < 79; s++) { const t = enc.tones[s]; const sync = isSyncSymbol(s); g.fillStyle = sync ? '#ff8c42' : '#4ea1ff'; g.fillRect(L + s * cw + 1, T + (7 - t) * ch + 1, cw - 2, ch - 2); }
       let k = 0; for (let s = 0; s < 79; s++) { if (isSyncSymbol(s)) { text(g, 'C', L + s * cw + cw / 2, T + H + 3, { align: 'center', color: '#ff8c42', font: '8px monospace' }); continue; } const b = `${enc.cw[k]}${enc.cw[k + 1]}${enc.cw[k + 2]}`; k += 3; text(g, b, L + s * cw + cw / 2, T + H + 3, { align: 'center', color: k <= 77 * 1 ? '#e6e9ef' : k <= 91 ? '#c792ea' : '#8b93a3', font: '7px monospace' }); }
       axisY(g, { x: L, y: T, h: H, min: -0.5, max: 7.5, ticks: [0, 1, 2, 3, 4, 5, 6, 7], fmt: v => 'tone ' + v });
-      text(g, 'orange = Costas sync [3 1 4 0 6 5 2]; blue = data. Under each column: its 3 bits (Gray code: 000→0 001→1 011→2 010→3 101→4 110→5 100→6 111→7)', L, T + H + 16, { color: '#8b93a3' });
     }
     /**
      * The three expensive plots, computed once per (message, frequency, SNR) and reused. Held on
      * the module-level `st` so coming back to the page does not re-pay 230 ms of FFTs for a
-     * picture that has not changed.
+     * picture that has not changed. Not keyed on the canvas width: a rotation reuses the arrays,
+     * which are only more or less finely sampled than the new width wants, never wrong.
      */
     function analysis() {
       const sig = sigOf();
       if (st.an && st.an.sig === sig) return st.an;
-      // instantaneous frequency of the GFSK modulator
-      const dphi = synth.instantaneousPhaseIncrement(enc.tones, p.f0); const xs = [], ys = []; const step = 24;
+      // instantaneous frequency of the GFSK modulator, decimated to ~7 points per output pixel:
+      // the density the desktop's fixed step of 24 gave at 948 px, and what keeps a ramp a ramp.
+      const dphi = synth.instantaneousPhaseIncrement(enc.tones, p.f0); const xs = [], ys = [];
+      const step = Math.max(24, Math.round(79 * 1920 / (7 * Math.max(1, cvF.w - L - 8))));
       for (let i = 0; i < 79 * 1920; i += step) { xs.push(i / FS); ys.push(dphi[i + 1920] * FS / (2 * Math.PI)); } // the waveform uses dphi[NSPS..NSPS+NFRAME)
-      // spectrogram of the noisy audio around f0 (337 frames of a 3840-point FFT)
-      const a = st.audio; const nfft = 3840, hop = 480, rows = Math.floor((a.length - 1920) / hop) + 1;
+      // spectrogram of the noisy audio around f0 (372 frames of a 3840-point FFT). On a phone the
+      // plot is ~240 px tall, so half of those frames would be thrown away: halve the frame rate
+      // instead of computing them.
+      const a = st.audio; const nfft = 3840, hop = cvS.w < 600 ? 960 : 480, rows = Math.floor((a.length - 1920) / hop) + 1;
       const b0 = Math.max(0, Math.floor((p.f0 - 40) / 3.125)), b1 = Math.min(1920, Math.ceil((p.f0 + 90) / 3.125)); const nb = b1 - b0;
       const data = new Float32Array(rows * nb); const fr = new Float64Array(1920); let mx = -1e9;
       for (let r = 0; r < rows; r++) { for (let i = 0; i < 1920; i++) fr[i] = a[r * hop + i]; const ps = powerSpectrum(fr, nfft); for (let b = b0; b < b1; b++) { const v = 10 * Math.log10(ps[b] + 1e-3); data[r * nb + b - b0] = v; if (v > mx) mx = v; } }
@@ -132,48 +188,93 @@ export default {
       const g = cvF.g; clear(cvF); const W = cvF.w - L - 8, H = cvF.h - T - 24;
       const xs = an.xs, ys = an.ys;
       linePlot(g, { xs, ys, x: L, y: T, w: W, h: H, xmin: 0, xmax: 79 * 0.16, ymin: p.f0 - 10, ymax: p.f0 + 55, color: '#ffd166', width: 1 });
-      for (let s = 0; s <= 79; s++) vline(g, L + s * 0.16 / (79 * 0.16) * W, T, H, s % 36 === 0 || s === 7 || s === 43 || s === 79 ? 'rgba(255,140,66,0.5)' : 'rgba(255,255,255,0.08)');
+      // 80 symbol boundaries is a solid haze once they are 6 px apart, and the yellow ramp behind
+      // them is the whole point of the panel: below that, only the Costas edges. One path each.
+      const gx = s => L + s / 79 * W;
+      if (W / 79 >= 6) {
+        g.save(); g.strokeStyle = 'rgba(255,255,255,0.08)'; g.beginPath();
+        for (let s = 0; s <= 79; s++) { if (STRUCT_LINES.includes(s)) continue; g.moveTo(gx(s), T); g.lineTo(gx(s), T + H); }
+        g.stroke(); g.restore();
+      }
+      g.save(); g.strokeStyle = 'rgba(255,140,66,0.5)'; g.beginPath();
+      for (const s of STRUCT_LINES) { g.moveTo(gx(s), T); g.lineTo(gx(s), T + H); }
+      g.stroke(); g.restore();
       axisY(g, { x: L, y: T, h: H, min: p.f0 - 10, max: p.f0 + 55, ticks: [p.f0, p.f0 + 25, p.f0 + 50], fmt: v => v }); axisX(g, { x: L, y: T + H, w: W, min: 0, max: 12.64, ticks: [0, 2, 4, 6, 8, 10, 12], fmt: v => v + ' s' });
-      text(g, 'instantaneous frequency of the modulator: Gaussian-smoothed steps between tones (BT = 2), 240-sample amplitude ramps at both ends', L + W, T, { align: 'right', bg: 'rgba(0,0,0,0.6)' });
 
       const g2 = cvS.g; clear(cvS); const a = st.audio; const { rows, nb, b0, b1, data, mx } = an;
       const W2 = cvS.w - L - 8, H2 = cvS.h - T - 24;
       heatmap(g2, { data, rows, cols: nb, x: L, y: T, w: W2, h: H2, vmin: mx - 50, vmax: mx, cmap: 'viridis', nearest: true });
       // note: transposed display (time on x) would need a different draw; keep time on y like the other pages
-      axisX(g2, { x: L, y: T + H2, w: W2, min: b0 * 3.125, max: b1 * 3.125, ticks: ticks(b0 * 3.125, b1 * 3.125, 6), fmt: v => v.toFixed(0) + ' Hz' }); axisY(g2, { x: L, y: T, h: H2, min: 0, max: a.length / FS, ticks: [0, 3, 6, 9, 12, 15], fmt: v => v + ' s', flip: true });
+      axisX(g2, { x: L, y: T + H2, w: W2, min: b0 * 3.125, max: b1 * 3.125, ticks: ticks(b0 * 3.125, b1 * 3.125, Math.min(6, tickCount(W2))), fmt: v => v.toFixed(0) + ' Hz' }); axisY(g2, { x: L, y: T, h: H2, min: 0, max: a.length / FS, ticks: [0, 3, 6, 9, 12, 15], fmt: v => v + ' s', flip: true });
 
       const g3 = cvP.g; clear(cvP); const W3 = cvP.w - L - 8, H3 = cvP.h - T - 24; const { xs3, ys3, mm } = an;
       linePlot(g3, { xs: xs3, ys: ys3, x: L, y: T, w: W3, h: H3, xmin: p.f0 - 60, xmax: p.f0 + 110, ymin: mm - 60, ymax: mm + 3, color: '#4ea1ff', width: 1 });
       for (let t = 0; t < 8; t++) vline(g3, L + (p.f0 + t * 6.25 - (p.f0 - 60)) / 170 * W3, T, H3, 'rgba(255,140,66,0.4)', [2, 3]);
-      axisX(g3, { x: L, y: T + H3, w: W3, min: p.f0 - 60, max: p.f0 + 110, ticks: ticks(p.f0 - 60, p.f0 + 110, 8), fmt: v => v.toFixed(0) + ' Hz' });
-      text(g3, 'dashed: the 8 tone frequencies f0 + n × 6.25 Hz. The occupied bandwidth is ≈ 50 Hz', L + W3, T, { align: 'right', bg: 'rgba(0,0,0,0.6)' });
+      axisX(g3, { x: L, y: T + H3, w: W3, min: p.f0 - 60, max: p.f0 + 110, ticks: ticks(p.f0 - 60, p.f0 + 110, Math.min(8, tickCount(W3))), fmt: v => v.toFixed(0) + ' Hz' });
     }
 
     // ---- overlays: the only thing the transport clock moves ----
-    function drawOverlays() {
+    /**
+     * Keep the current symbol's column in the scrolled window, and answer with the x of the left
+     * edge of what is visible (canvas coordinates), or -1 when the whole row fits.
+     */
+    function followSymbol(s, cw) {
+      const max = toneScroll();
+      if (max <= 1) return -1;
+      const want = Math.max(0, Math.min(max, toneOff + L + (s + 0.5) * cw - cwP.clientWidth / 2));
+      if (Math.abs(cwP.scrollLeft - want) > 1) cwP.scrollLeft = want;
+      return Math.max(0, cwP.scrollLeft - toneOff);
+    }
+    let lastSym = -1;
+    function drawOverlays(force = false) {
       const s = curSym();
-      const g = cvTo.g; clear(cvTo);
-      if (enc) {
-        const W = cvT.w - L - 8, H = cvT.h - T - 46, cw = W / 79;
-        g.strokeStyle = '#ff5c5c'; g.lineWidth = 1.5; g.strokeRect(L + s * cw, T, cw, H);
-        text(g, `symbol ${s}: tone ${enc.tones[s]}${isSyncSymbol(s) ? ' (Costas)' : ` = ${(enc.tones[s]).toString(2).padStart(3, '0')} → bits ${GRAY_MAP.indexOf(enc.tones[s]).toString(2).padStart(3, '0')}`}, ${(p.f0 + enc.tones[s] * 6.25).toFixed(2)} Hz`, L + W, T + 2, { align: 'right', bg: 'rgba(0,0,0,0.6)' });
+      if (force || s !== lastSym) {   // both tone plots move a whole column at a time: 6 Hz, not 60
+        lastSym = s;
+        const g = cvTo.g; clear(cvTo);
+        if (enc) {
+          const W = cvT.w - L - 8, H = cvT.h - T - BOT, cw = W / 79;
+          g.strokeStyle = '#ff5c5c'; g.lineWidth = 1.5; g.strokeRect(L + s * cw, T, cw, H);
+          const msg = `symbol ${s}: tone ${enc.tones[s]}${isSyncSymbol(s) ? ' (Costas)' : ` = ${(enc.tones[s]).toString(2).padStart(3, '0')} → bits ${GRAY_MAP.indexOf(enc.tones[s]).toString(2).padStart(3, '0')}`}, ${(p.f0 + enc.tones[s] * 6.25).toFixed(2)} Hz`;
+          // Pinned to the right of the plot when it all fits, and to the left of the visible window
+          // when the panel is scrolling, where the far right edge is off screen.
+          const vis = followSymbol(s, cw);
+          if (vis < 0) text(g, msg, L + W, T + 2, { align: 'right', bg: 'rgba(0,0,0,0.6)', max: W });
+          else {
+            // Never left of the axis gutter: at scrollLeft 0 the visible edge is the canvas edge,
+            // and the readout would sit on top of the "tone 7" tick label.
+            const x = Math.max(vis, L) + 4;
+            text(g, msg, x, T + 2, { align: 'left', bg: 'rgba(0,0,0,0.6)', max: cwP.clientWidth - 10 - (x - vis) });
+          }
+        }
+        const gf = cvFo.g; clear(cvFo);
+        if (st.wave) { const W = cvF.w - L - 8, H = cvF.h - T - 24; vline(gf, L + (s + 0.5) * 0.16 / (79 * 0.16) * W, T, H, '#ff5c5c'); }
       }
-      const gf = cvFo.g; clear(cvFo);
-      if (st.wave) { const W = cvF.w - L - 8, H = cvF.h - T - 24; vline(gf, L + (s + 0.5) * 0.16 / (79 * 0.16) * W, T, H, '#ff5c5c'); }
       const gs = cvSo.g; clear(cvSo);
       if (st.audio) { const W2 = cvS.w - L - 8, H2 = cvS.h - T - 24; hline(gs, L, W2, T + app.clock.t / (st.audio.length / FS) * H2, '#ff5c5c'); }
     }
     function syncAudio() {
-      const c = app.clock; stopAudio(); if (!c.playing || !st.audio) return;
-      if (!st.audioCtx) { st.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); st.gain = st.audioCtx.createGain(); st.gain.connect(st.audioCtx.destination); }
-      if (st.audioCtx.state === 'suspended') st.audioCtx.resume();
-      if (!st.buf) { const buf = st.audioCtx.createBuffer(1, st.audio.length, FS); const ch = buf.getChannelData(0); let m = 1; for (const v of st.audio) m = Math.max(m, Math.abs(v)); for (let i = 0; i < st.audio.length; i++) ch[i] = st.audio[i] / m * 0.8; st.buf = buf; }
-      st.gain.gain.value = p.volume; const s = st.audioCtx.createBufferSource(); s.buffer = st.buf; s.loop = c.loop; s.playbackRate.value = c.speed; s.connect(st.gain); s.start(0, Math.min(c.t, st.buf.duration - 0.01)); st.src = s;
+      try {
+        const c = app.clock; stopAudio(); if (!c.playing || !st.audio) return;
+        if (!st.audioCtx) { st.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); st.gain = st.audioCtx.createGain(); st.gain.connect(st.audioCtx.destination); }
+        // Not "suspended": WebKit parks the context in "interrupted" after a screen lock or an app
+        // switch, and testing for that one state leaves playback silently dead for the session.
+        if (st.audioCtx.state !== 'running') { const r = st.audioCtx.resume(); if (r && r.catch) r.catch(() => { }); }
+        if (!st.buf) { const buf = st.audioCtx.createBuffer(1, st.audio.length, FS); const ch = buf.getChannelData(0); let m = 1; for (const v of st.audio) m = Math.max(m, Math.abs(v)); for (let i = 0; i < st.audio.length; i++) ch[i] = st.audio[i] / m * 0.8; st.buf = buf; }
+        st.gain.gain.value = p.volume; const s = st.audioCtx.createBufferSource(); s.buffer = st.buf; s.loop = c.loop; s.playbackRate.value = c.speed; s.connect(st.gain); s.start(0, Math.min(c.t, st.buf.duration - 0.01)); st.src = s;
+      } catch (e) { app.status('audio unavailable: ' + (e.message || e)); }
     }
     app.clock.setDuration(15);
     app.clockFormat = t => `${t.toFixed(2)} s · symbol ${curSym()}`;
     st.unsubs.push(app.clock.subscribe((c, kind) => { drawOverlays(); if (['play', 'pause', 'seek', 'speed'].includes(kind)) syncAudio(); }));
-    encode();
+    layout();
+    encode(true);
+    this.resize = () => { layout(); drawTonesBg(); drawWaveBg(); drawOverlays(true); };
   },
-  unmount() { st.token++; stopAudio(); if (st.audioCtx && st.audioCtx.state === 'running') st.audioCtx.suspend(); for (const u of st.unsubs) u(); st.unsubs = []; },
+  resize: null,
+  unmount() {
+    st.token++; stopAudio(); if (st.audioCtx && st.audioCtx.state === 'running') st.audioCtx.suspend();
+    for (const u of st.unsubs) u(); st.unsubs = []; this.resize = null;
+    // ~2.8 MB of audio plus the spectrogram, all of it rebuilt by the sigOf() guard on the way back.
+    st.audio = null; st.wave = null; st.an = null; st.buf = null;
+  },
 };

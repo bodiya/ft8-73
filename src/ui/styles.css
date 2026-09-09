@@ -1,14 +1,21 @@
 :root { --bg:#0f1218; --panel:#171c26; --ink:#e6e9ef; --muted:#8b93a3; --line:#2a3242; --accent:#4ea1ff; --orange:#ff8c42; --green:#3ddc97; --red:#ff5c5c; --yellow:#ffd166; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 * { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--ink); font-size:14px; }
+/* Without this iOS Safari inflates the body text of long blocks by its own factor, which shifts
+   every caption out of step with the plot it describes. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* Backstop: nothing here may give the document a sideways scroll, which on a phone also detaches
+   the sticky bars. Set on body only, so it propagates to the viewport and sticky still works. */
+body { margin:0; background:var(--bg); color:var(--ink); font-size:14px; overflow-x:hidden; }
 #topbar { display:flex; align-items:center; gap:18px; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
 .brand { font-weight:700; color:var(--ink); text-decoration:none; font-size:16px; }
-#nav a { color:var(--muted); text-decoration:none; margin-right:14px; padding:4px 0; border-bottom:2px solid transparent; }
+#nav a { color:var(--muted); text-decoration:none; margin-right:14px; padding:4px 0; border-bottom:2px solid transparent; white-space:nowrap; }
 #nav a.active { color:var(--ink); border-color:var(--accent); }
-#loadstatus { margin-left:auto; color:var(--muted); font-size:12px; }
-#transport { display:flex; align-items:center; gap:12px; padding:6px 16px; background:#12161e; border-bottom:1px solid var(--line); font-size:12px; color:var(--muted); }
+.tools { display:flex; align-items:center; gap:6px; margin-left:auto; min-width:0; }
+#loadstatus { color:var(--muted); font-size:12px; margin-left:6px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#transport { display:flex; align-items:center; gap:12px; padding:6px 16px; background:#12161e; border-bottom:1px solid var(--line); font-size:12px; color:var(--muted); flex-wrap:wrap; row-gap:6px; }
 #transport button { background:var(--line); color:var(--ink); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; font-size:14px; }
-#transport #scrub { flex:1; }
+#transport #scrub { flex:1 1 120px; }
+#transport input[type=range] { min-width:0; }
 #transport label { display:flex; align-items:center; gap:6px; }
 #clock-readout { min-width:190px; text-align:right; font-variant-numeric: tabular-nums; }
 main { padding:14px 16px 40px; max-width:1500px; margin:0 auto; }
@@ -16,10 +23,22 @@ h1 { font-size:20px; margin:4px 0 6px; }
 h2 { font-size:15px; margin:14px 0 6px; color:var(--ink); }
 p.blurb { color:var(--muted); max-width:900px; margin:0 0 12px; line-height:1.45; }
 .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
-.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+/* A flex item's automatic minimum size is its min-content width, which for a plot column is the
+   width of the fixed canvases inside it. Without this the column never shrinks, fitW() always
+   returns the desktop preference, and the page overflows however narrow the screen is. */
+.row > * { min-width: 0; }
+.stagemain { flex:1 1 0; min-width:0; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; max-width:100%; }
 .panel h3 { margin:0 0 6px; font-size:13px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
 canvas { display:block; background:#0b0e13; border-radius:4px; }
+/* A vertical swipe that starts on a plot must scroll the page; a horizontal drag is the plot's
+   own (onPlot() uses it as the touch stand-in for hover). */
+canvas { touch-action: pan-y; }
 .controls { display:flex; flex-direction:column; gap:8px; min-width:230px; max-width:280px; }
+/* A definite width for the knob sidebar, so a plot column measures the same before and after the
+   sliders are appended. Without it an empty .controls sits at its 230 px minimum and a filled one
+   at its 280 px maximum, and a page that sizes its canvases mid-mount builds them 50 px too wide. */
+@media (min-width: 1101px) { .row > .controls.panel { flex: 0 0 280px; } }
 .ctl { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--muted); }
 .ctl .lab { display:flex; justify-content:space-between; }
 .ctl .lab b { color:var(--ink); font-weight:600; font-variant-numeric: tabular-nums; }
@@ -34,9 +53,8 @@ canvas { display:block; background:#0b0e13; border-radius:4px; }
 table.list { border-collapse:collapse; font-size:12px; font-variant-numeric: tabular-nums; }
 table.list td, table.list th { padding:2px 8px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
 table.list td.msg, table.list th.msg { text-align:left; font-family: ui-monospace, Menlo, Consolas, monospace; }
-table.list tr.sel { background:#233; }
-table.list tr:hover { background:#1c2330; cursor:pointer; }
-.scroll { max-height:420px; overflow:auto; }
+table.list tr.sel { background:#233; box-shadow: inset 3px 0 0 var(--accent); }
+.scroll { max-height:420px; overflow:auto; overscroll-behavior:contain; }
 .bits { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; line-height:1.7; word-break:break-all; }
 .bits span { display:inline-block; padding:0 1px; }
 .bits .f0 { color:#4ea1ff } .bits .f1 { color:#ff8c42 } .bits .f2 { color:#3ddc97 } .bits .f3 { color:#ffd166 } .bits .f4 { color:#c792ea } .bits .f5 { color:#8b93a3 }
@@ -51,16 +69,18 @@ table.list tr:hover { background:#1c2330; cursor:pointer; }
 .home ol.tour a { color:var(--accent); font-weight:600; text-decoration:none; }
 .home .card { margin-bottom:10px; }
 .home .card a { color:var(--accent); font-weight:600; text-decoration:none; }
-.tabs { display:flex; gap:6px; margin-bottom:8px; }
-.tabs button { background:var(--line); color:var(--muted); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; }
+.tabs { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+.tabs button { background:var(--line); color:var(--ink); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; white-space:nowrap; }
 .tabs button.active { background:var(--accent); color:#000; }
+.tabs button:disabled { color:var(--muted); cursor:default; }
 kbd { background:var(--line); padding:0 5px; border-radius:3px; font-size:11px; }
-.filebtn { background:var(--line); color:var(--ink); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; font-size:12px; margin-left:auto; }
-.filebtn + .filebtn { margin-left:6px; }
-#loadstatus { margin-left:12px; }
+.filebtn { background:var(--line); color:var(--ink); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; font-size:12px; white-space:nowrap; }
+/* Visually hidden but still laid out: iOS Safari does not reliably open the picker for a
+   display:none file input activated through its label. */
+.vh { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; pointer-events:none; }
 
 /* Stacked canvas layers: a static background plus one or more overlays that follow the clock. */
-.layers { position:relative; display:block; }
+.layers { position:relative; display:block; max-width:100%; }
 .layers canvas { position:absolute; left:0; top:0; background:transparent; }
 .layers canvas:first-child { background:#0b0e13; }
 
@@ -68,31 +88,101 @@ kbd { background:var(--line); padding:0 5px; border-radius:3px; font-size:11px; 
 .tabcap { font-size:12px; color:var(--muted); line-height:1.5; margin:-2px 0 8px; max-width:1000px; }
 .tabcap b { color:var(--ink); font-weight:600; }
 .tabcap .sep { display:inline-block; width:1px; height:10px; background:var(--line); margin:0 10px; vertical-align:-1px; }
-.tabs { flex-wrap:wrap; }
-.tabs .group { display:flex; gap:6px; align-items:center; }
+.tabs .group { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
 .tabs .grouplab { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-right:2px; }
 .tabs .div { width:1px; align-self:stretch; background:var(--line); margin:0 6px; }
 
-/* "Try this" experiment strip: guided settings for the same knobs the controls panel exposes. */
+/* "Try this" experiment strip: guided settings for the same knobs the controls panel exposes.
+   On a phone this is the primary interface, since six buttons fit where thirteen sliders do not. */
 .trythis { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 10px; max-width:1000px; }
 .trythis .lab { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-right:2px; }
-.trythis button { background:var(--line); color:var(--ink); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; font-size:12px; }
-.trythis button:hover { background:#33405a; }
+.trythis .strip { display:flex; flex-wrap:wrap; gap:6px; flex:1 1 auto; min-width:0; }
+.trythis button { background:var(--line); color:var(--ink); border:0; border-radius:4px; padding:3px 10px; cursor:pointer; font-size:12px; white-space:nowrap; }
 .trythis button.active { background:var(--accent); color:#000; }
 .trythis .see { flex-basis:100%; font-size:12px; color:var(--muted); line-height:1.5; min-height:18px; }
 .trythis .see b { color:var(--ink); font-weight:600; }
 
-/* Narrow screens: the canvases are fixed-width by design (they are pixel plots), so let the
-   panels scroll sideways instead of blowing the page layout out. */
-main { overflow-x:hidden; }
+/* Hover only where there is a pointer that can hover. On touch, :hover sticks after a tap, and
+   the leftover row highlight is almost the same colour as the real selection. */
+@media (hover: hover) and (pointer: fine) {
+  table.list tr:hover { background:#1c2330; cursor:pointer; }
+  .trythis button:hover { background:#33405a; }
+  .tabs button:hover { background:#33405a; }
+  #colophon a:hover { color:var(--accent); }
+}
+table.list tr:active { background:#1c2330; }
+
+/* Medium screens: the controls column stops being a fixed sidebar. */
 @media (max-width: 1100px) {
-  .panel { overflow-x:auto; }
-  .controls { max-width:none; width:100%; }
-  #topbar { flex-wrap:wrap; gap:10px; }
-  #nav a { margin-right:10px; font-size:13px; }
+  /* brand + 7 nav links + the two file buttons need ~906 px on one line; below that the bar has to
+     wrap or it pushes the document sideways. The phone block below then turns the nav into a
+     scroller so it costs one row instead of two. */
+  #topbar { flex-wrap:wrap; gap:10px; row-gap:6px; }
+  .panel { overflow-x:auto; overscroll-behavior-x:contain; }
+  .controls { max-width:none; min-width:0; width:100%; }
   p.blurb, .note, .tabcap { max-width:none; }
+  /* Once the knob panel is a full-width band rather than a sidebar, it belongs after the pictures
+     it drives. This has to start here and not at the phone breakpoint: 844 px landscape is in this
+     band, and stage 1 would otherwise open with 764 px of sliders above the first plot. */
+  .row > .controls.panel { order:2; }
+}
+
+/* Phones and small tablets: one column, plots before knobs, transport pinned instead of the nav.
+   Canvas sizes are not set here - pages build them from fitW() so the backing store shrinks too. */
+@media (max-width: 760px) {
+  main { padding:12px 10px 32px; }
+  #topbar { position:static; flex-wrap:wrap; gap:8px; row-gap:6px; padding:6px 10px; }
+  .brand { margin-right:auto; }
+  /* order 3 puts the nav strip on its own line BELOW the brand and the file buttons, which then
+     share the first line: three rows of chrome on a 390 px screen is one too many. */
+  #nav { order:3; display:flex; gap:16px; overflow-x:auto; flex:1 1 100%; min-width:0; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  #nav::-webkit-scrollbar { display:none; }
+  #nav a { flex:0 0 auto; margin-right:0; font-size:13px; }
+  /* The transport is what a reader needs while watching a plot; the nav is a one-off. */
+  #transport { position:sticky; top:0; z-index:6; padding:6px 10px; }
+  #transport #scrub { flex:1 1 100%; order:9; }
+  #clock-readout { min-width:0; margin-left:auto; }
+  /* Stack every row, and put the knobs after the pictures they drive: on stage 1 the panel is
+     764 px of sliders that would otherwise stand between the blurb and the first plot. */
+  .row { flex-direction:column; gap:10px; }
+  .row > * { width:100%; }
+  .trythis .strip { flex-wrap:nowrap; overflow-x:auto; scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; padding-bottom:2px; scrollbar-width:none; }
+  .trythis .strip::-webkit-scrollbar { display:none; }
+  .trythis button { flex:0 0 auto; scroll-snap-align:start; }
+  .scroll { max-height:min(420px, 45vh); }
+  .stats, .note, .tabcap, .legend span, table.list, .trythis .see, #transport { font-size:13px; }
+  .pill, .tabs .grouplab, .trythis .lab { font-size:12px; }
+  h1 { font-size:18px; }
+  #colophon { padding:0 10px 28px; }
+}
+
+/* Touch targets. Keyed on the pointer, not the width, so a tablet gets them too. 44 px is the
+   iOS minimum; the padding is transparent where visible density matters. */
+@media (pointer: coarse) {
+  #nav a { padding:12px 0; }
+  #transport button { min-width:44px; min-height:44px; font-size:16px; }
+  #transport label { min-height:44px; }
+  #transport input[type=checkbox] { width:22px; height:22px; }
+  .filebtn, .tabs button, .trythis button, .controls button { min-height:44px; padding:0 14px; display:inline-flex; align-items:center; justify-content:center; }
+  /* The checkbox itself stays 22 px; the label around it is what a finger aims at. */
+  .ctl.check { min-height:44px; }
+  table.list td, table.list th { padding:8px 8px; }
+  /* 16px or iOS zooms the page in on focus and never zooms back out. */
+  .ctl select, .ctl input[type=text] { font-size:16px; padding:9px 8px; min-height:44px; }
+  .ctl input[type=range], #transport input[type=range] {
+    height:44px; -webkit-appearance:none; appearance:none; background:transparent; touch-action:pan-y;
+  }
+  input[type=range]::-webkit-slider-runnable-track { height:6px; border-radius:3px; background:var(--line); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:24px; height:24px; margin-top:-9px; border-radius:50%; background:var(--accent); }
+  input[type=range]::-moz-range-track { height:6px; border-radius:3px; background:var(--line); }
+  input[type=range]::-moz-range-thumb { width:24px; height:24px; border:0; border-radius:50%; background:var(--accent); }
+}
+
+/* Landscape on a phone: the same one-column chrome, but height is the scarce axis. */
+@media (max-height: 480px) and (pointer: coarse) {
+  #topbar { position:static; }
+  .scroll { max-height:60vh; }
 }
 
 #colophon { max-width:1500px; margin:0 auto; padding:0 16px 28px; font-size:12px; color:var(--muted); }
 #colophon a { color:var(--muted); }
-#colophon a:hover { color:var(--accent); }

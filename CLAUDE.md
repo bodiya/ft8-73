@@ -22,13 +22,19 @@ node tools/subtract_test.mjs    # subtraction + baseline SNR checks vs wsjtr's r
 node tools/pack77_test.mjs      # message packing round-trips (+ ft8coder comparison if built)
 node tools/baseline_test.mjs
 node tools/cdp_check.mjs        # drives every page and tab in headless Chrome; must end "no console errors or exceptions"
+node tools/cdp_check.mjs --mobile          # the same sweep at 390x844 with touch: real taps, and it
+                                           # reports horizontal overflow, unreachable taps and tap
+                                           # targets under 44 px. --mobile=844x390@2 for landscape.
 node tools/cdp_shot.mjs <page> <out.png> ["<js expression run before the shot>"]
+node tools/cdp_shot.mjs <page> <out.png> --viewport=390x844 [--full]
 ```
 
 The page must be served over HTTP (ES modules + fetch); `file://` shows an explanatory
 message instead. `google-chrome` is used headless by the CDP tools. After any UI change,
-run `cdp_check.mjs` and look at a screenshot from `cdp_shot.mjs`; after any DSP change, run
-`npm test` and the relevant `tools/*_test.mjs`. Expected `npm test` result on the bundled
+run `cdp_check.mjs` **and `cdp_check.mjs --mobile`**, and look at a screenshot from
+`cdp_shot.mjs` at both sizes; after any DSP change, run `npm test` and the relevant
+`tools/*_test.mjs`. The mobile run exits non-zero when it finds a layout or tap-target
+problem, so it can gate a commit; the desktop run always exits 0. Expected `npm test` result on the bundled
 window at depth 3: 30 unique messages, all 18 of wsjtr's pass-1 decodes, nothing outside
 wsjtr's list.
 
@@ -71,6 +77,13 @@ DECISIONS.md            pending choices and loose ends; update it when they chan
   thread computes a single candidate trace synchronously (~5 ms) and the sync surface
   (~40 ms).
 - Text style in the UI: no em-dashes; short blurbs; numbers in tables or readouts.
+- The same app serves phones; there is no separate mobile build. A page sizes every canvas with
+  `fitW(panel, <the desktop width>, <a floor>)` from `controls.js` and exposes `resize()` next to
+  `setTab` (assigned in `mount`, nulled in `unmount`) so `app.js` can rebuild it on a rotation.
+  All the drawing code already derives its plot box from `cv.w` / `cv.h`, so a smaller canvas is
+  usually the only change needed. Pointer input goes through `onPlot()`, which makes a touch drag
+  stand in for hover. Below 760 px `styles.css` stacks every `.row` and moves the controls panel
+  after the plots; below 1100 px it does the latter alone.
 
 ## Performance rules
 

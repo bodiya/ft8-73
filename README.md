@@ -45,15 +45,25 @@ you can send someone straight to the picture you meant.
 
 Browser requirements: ES modules, module workers (Chrome 80, Firefox 114, Safari 15) and Canvas
 2D. `requestIdleCallback` is used for warm-up but falls back to `setTimeout` where it is missing.
-The canvases are fixed-width pixel plots between 1000 and 1060 px, so on a narrow screen the
-panels scroll sideways rather than reflowing.
+
+It works on a phone. Every plot is built at a size derived from the column it sits in and rebuilt
+on rotation, the controls panel moves below the plots, a tap does what hovering does with a mouse,
+and the transport bar is the one pinned to the top. Four plots are dense enough that shrinking them
+past a floor would destroy the point (the 79-column tone grid, the Tanner graph, the one-check
+view, the tone row), so those keep an intrinsic width in a panel that pans sideways. On a small or
+low-memory device the app also takes the cheaper route through the expensive views: stage 4 opens
+on the recorded residuals instead of starting a minute-long decode, stage 1's causal ladder is
+coarser, and the render cache is smaller.
 
 `npm test` runs the JS decoder on the bundled window from Node and compares against
 wsjtr's decode list (single pass, depth 3: 30 messages, all 18 of wsjtr's pass-1 decodes).
 Other Node checks: `tools/subtract_test.mjs`, `tools/osd_test.mjs`, `tools/pack77_test.mjs`,
 `tools/baseline_test.mjs`, and `tools/cdp_check.mjs` (drives every page and tab in headless
 Chrome and reports exceptions). `tools/cdp_shot.mjs <page> <out.png> [js]` screenshots a page
-after running some JS in it.
+after running some JS in it. Both CDP tools take a phone viewport: `cdp_check.mjs --mobile`
+re-runs the whole sweep at 390x844 with touch emulation, tapping with real touch events and
+reporting horizontal overflow, unreachable taps and tap targets under 44 px, and
+`cdp_shot.mjs ... --viewport=390x844 --full` captures a full-page phone screenshot.
 
 The **open WAV** button loads your own recording of one slot (any sample rate, resampled to
 12 kHz, truncated to 15 s). The JS decoder then runs three passes with subtraction in a

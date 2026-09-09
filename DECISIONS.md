@@ -1,7 +1,7 @@
 # Pending decisions and where to pick up
 
-Status as of 2026-09-08: every page runs end to end and `node tools/cdp_check.mjs` passes
-clean. Sections 1 to 3 were open choices and are now decided (keep every view, and integrate
+Status as of 2026-09-09: every page runs end to end on a desktop and on a phone;
+`node tools/cdp_check.mjs` and `node tools/cdp_check.mjs --mobile` both pass clean. Sections 1 to 3 were open choices and are now decided (keep every view, and integrate
 them properly); the rest are loose ends noticed while building. Nothing here blocks use of the
 app.
 
@@ -165,12 +165,68 @@ quoted under the row holds whichever button you press first.
 Still open: the tour on the home page hard-codes the same numbers in prose, so it has the same
 re-measuring cost, and nothing enforces that the two agree.
 
+## 9. Mobile: one responsive app, not a second build
+
+Decision (2026-09-09): the same page serves a phone. The alternative, a separate mobile version,
+was rejected because every drawing function here already derives its plot box from `cv.w` / `cv.h`,
+so a canvas built at 344 px instead of 1060 px adapts on its own; a second build would have
+duplicated 1200 lines of visualization to change one number.
+
+What that cost, concretely:
+
+- `fitW(panel, pref, min)` in `controls.js` returns the panel's content width clamped to the old
+  hard-coded literal. Pages pass the literal they used to hard-code, so a wide screen is unchanged.
+  It only works because `.row > * { min-width: 0 }` now lets a plot column shrink below the
+  min-content width of the canvases inside it; without that a flex item's automatic minimum size
+  pinned every stage page at 1026-1102 px inside a 390 px screen, and `main { overflow-x: hidden }`
+  (now gone) threw the rest away with no way to scroll to it.
+- Pages expose `resize()` next to `setTab`. `app.js` watches a quantized width plus the device
+  pixel ratio, which is what makes it safe: iOS fires `resize` continuously while its URL bar
+  collapses during a scroll, and Android fires one whenever the keyboard opens over a text field.
+  Neither changes the width, so both expire into a no-op.
+- `onPlot()` is the one pointer path. A touch screen has no hover, so a press-and-drag stands in
+  for one and a tap both fills the readout and picks. It also handles a synthesized `click`, which
+  is what `cdp_check.mjs` and assistive technology dispatch.
+
+Three plots refuse to shrink and keep an intrinsic width inside a panel that pans sideways, because
+below a floor they stop teaching anything: stage 2's 79-column tone grid (520 px, under which the
+green mismatch box is half a pixel), stage 3's Tanner graph (700 px) and one-check view (810 px),
+and stage 5's tone row (1080 px, where the clock now drives `scrollLeft` so the cursor stays in
+view). Everything else shrinks.
+
+Stage 4 stacks its three waterfalls on a narrow screen rather than shrinking them to 107 px each.
+Stacked they share one x mapping, so 1551 Hz is the same column in all three, which reads better
+for "is it gone?" than side by side did.
+
+Two behaviour changes a phone forced, both of which also help a laptop:
+
+- Stage 4 opens on **wsjtr's recorded residuals**, not the live decoder. Merely navigating there
+  used to start a 3-pass worker decode: 19 s of one core on a desktop, closer to a minute on a
+  phone. "Live" is one tap away and starts it then.
+- On a constrained device (coarse pointer, narrow screen, <= 4 GB or <= 4 cores) a window with no
+  reference decode list gets a single depth-3 pass instead of three passes with subtraction, the
+  heatmap cache ceiling drops from 32 MB to 8 MB, and stage 1's causal ladder steps 12 spectrogram
+  rows instead of 4 (28 surfaces, ~20 MB, against a measured 61.2 MB before).
+
+Fixed on the way through, and it was a real bug at every size: `heatmap()`'s max-pooling mapped
+source rows with `floor(r / n * pr)`, which is not the identity when `pr === n` because
+`49 / 165 * 165` is `48.99999999999999`. 13 of 165 rows were never written and painted as the
+colormap floor. It only showed once pooling became automatic, since the one previous caller always
+pooled to a smaller grid.
+
+Still open: the desktop plot column now fills its row rather than hugging its canvases, so a plot
+panel can be ~70 px wider than the canvas inside it. Measuring the column is what makes `fitW`
+work, and a shrink-to-fit column makes that measurement circular. The alternative is a per-page
+measure-then-pin, which stage 1 briefly had; it was removed so that all six pages behave the same.
+
 ## How to resume
 
 ```bash
 npm start                       # serve on :8765
 npm test                        # Node decode check vs wsjtr's list
 node tools/cdp_check.mjs        # drives every page/tab in headless Chrome
+node tools/cdp_check.mjs --mobile   # the same sweep at 390x844 with touch; exits 1 on a finding
 node tools/cdp_shot.mjs <page> out.png "<js to run first>"
+node tools/cdp_shot.mjs <page> out.png --viewport=390x844 --full
 ```
 See CLAUDE.md for the layout and conventions.
