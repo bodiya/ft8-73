@@ -47,7 +47,9 @@ export const app = {
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
   recomputeSync() {
     const p = this.syncParams;
-    if (!this.surf || this.surf._fmin !== p.freqMin || this.surf._fmax !== p.freqMax) { this.surf = syncSurface(this.spec, p.freqMin, p.freqMax); this.surf._fmin = p.freqMin; this.surf._fmax = p.freqMax; }
+    // Keyed on the spectrogram itself, not just the frequency range: setAudio() builds a new spec
+    // for every window, and keying only on the range once let a new window reuse the old surface.
+    if (!this.surf || this.surf._spec !== this.spec || this.surf._fmin !== p.freqMin || this.surf._fmax !== p.freqMax) { this.surf = syncSurface(this.spec, p.freqMin, p.freqMax); this.surf._spec = this.spec; this.surf._fmin = p.freqMin; this.surf._fmax = p.freqMax; }
     this.hits = syncHits(this.surf, p);
     const d = dedupeCandidates(this.hits.hits, p); this.candidates = d.kept; this.dropped = d.dropped;
     this.emit('sync');
@@ -65,9 +67,13 @@ export const app = {
     clearHeatmapCache();   // every cached render refers to the old window's arrays
     this.audio = samples.length > 180000 ? samples.slice(0, 180000) : samples; this.duration = this.audio.length / FS; this.name = name;
     this.truth = truth || { window: name, band: '', wsjtr: [], wsjtx: [], js: [] };
-    this.spec = null; this.surf = null; this.ctx = null; this.selected = null; this.trace = null; this._baseline = null;
-    this.clock.pause(); this.clock.setDuration(this.duration);
+    this.ctx = null; this.selected = null; this.trace = null; this._baseline = null;
+    // Order matters: clock.pause() and clock.setDuration() both emit to every page's clock
+    // subscriber, and those read app.spec and app.surf. Pause first, while the old window is still
+    // consistent, then replace spec and surf rather than nulling them, and only then move the clock.
+    this.clock.pause();
     this.spec = spectrogram(this.audio); this.recomputeSync();
+    this.clock.setDuration(this.duration);
     this.emit('audio');
     // With a reference decode list in hand the JS run is only needed for stage 4 and the "this JS
     // decoder" overlays, so it waits for an idle moment instead of competing with first paint.
