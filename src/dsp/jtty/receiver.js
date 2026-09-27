@@ -378,7 +378,7 @@ export class Receiver {
       else if (!pure) msg = this.startMessage(cd);
       const ev = { tsync: cd.tsync, f1: cd.f1, xdt: cd.xdt, snr: nint(cd.snrdb - 20), snrdb: cd.snrdb, nsync: cd.nsync, nsymerrs: nerr, ichan: ich, ipass, ic,
         frame: displayText(cd.decoded) || cd.decoded, raw: cd.decoded, eom: cd.isLast, pure, retro: !!interferer, istart, tAvail: fwd ? fwd.tEnd : call.tEnd,
-        L: dec.L, rank: dec.rank, messageId: msg ? msg.id : null, message: msg ? displayText(msg.decoded) : displayText(cd.decoded), tones: t59 };
+        L: dec.L, rank: dec.rank, z: { re: Float32Array.from(z.re), im: Float32Array.from(z.im) }, messageId: msg ? msg.id : null, message: msg ? displayText(msg.decoded) : displayText(cd.decoded), tones: t59 };
       if (msg) { const m = this.messages.get(msg.id); if (m) m.frames.push(ev); }
       this.events.push(ev);
       if (pick) { pick.result = pure ? 'seen before' : 'decoded'; pick.event = ev; }

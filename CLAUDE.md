@@ -21,6 +21,7 @@ node tools/osd_test.mjs         # OSD / AP port checks
 node tools/subtract_test.mjs    # subtraction + baseline SNR checks vs wsjtr's residual WAV
 node tools/pack77_test.mjs      # message packing round-trips (+ ft8coder comparison if built)
 node tools/baseline_test.mjs
+node tools/jtty_test.mjs        # JTTY: codec, encoder, list decoder and receiver vs WSJT-X's Fortran
 node tools/cdp_check.mjs        # drives every page and tab in headless Chrome; must end "no console errors or exceptions"
 node tools/cdp_check.mjs --mobile          # the same sweep at 390x844 with touch: real taps, and it
                                            # reports horizontal overflow, unreachable taps and tap
@@ -48,7 +49,8 @@ src/ui/controls.js      slider/select/checkbox/button/panel/canvas builders, lay
 src/ui/draw.js          colormaps, cached heatmap renderer, axes, line plots
 src/ui/styles.css
 src/dsp/                the decoder (see README for the file → Rust module map)
-src/vis/                one module per page: home, stage0_signal … stage4_passes, stage5_encode
+src/dsp/jtty/           JTTY (WSJT-X 3.2 lib/jtty): codec, fec, wave, receiver, worker
+src/vis/                one module per page: home, stage0_signal … stage4_passes, stage5_encode, jtty
 data/                   bundled window (raw + wsjtr's pass-2/3 residual WAVs) and decode lists
 tools/                  Node tests and the CDP drivers
 .github/workflows/      GitHub Pages deploy; .nojekyll and _headers are the other hosting bits
@@ -127,8 +129,19 @@ Every runtime URL resolves against `import.meta.url` (`app.asset('data/...')` fo
 `new URL('../dsp/worker.js', import.meta.url)` for the worker), so the app runs from any subpath.
 Do not add document-relative `fetch()` or `new Worker()` paths.
 
+## JTTY
+
+The `#jtty` page is the exception to "port from wsjtr": JTTY is ported from WSJT-X 3.2's Fortran
+(`lib/jtty` on the `jtty-receiver-defaults` branch of Brian's wsjtx fork), with the Fortran file
+cited in each module. It runs on its own audio (`st.audio` in `src/vis/jtty.js`), not `app.audio`,
+and its receiver runs in `src/dsp/jtty/worker.js`, streaming one decode window at a time. After a
+change to `src/dsp/jtty`, run `node tools/jtty_test.mjs`; its fixtures were made by Fortran
+drivers linked against that code, and a change that moves a hypothesis or a decode is a bug.
+
 ## Data provenance
 
+`data/260807_134110.wav` is WSJT-X's `samples/JTTY/260807_134110.wav`, and
+`data/260807_134110.jtty.json` is `rjtty 2.6 1 384 1500 50` run on it.
 `data/260726_190930*.wav` and the decode JSON come from the HamX capture
 `~/ham/hamx/data/cap-3-attempt2` (2026-07-26 19:09:30 UTC, 20 m). The `pass` field was
 inferred from wsjtr's output bursts; wsjtr's `passN.wav` is the input to outer pass N,

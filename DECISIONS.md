@@ -219,11 +219,34 @@ panel can be ~70 px wider than the canvas inside it. Measuring the column is wha
 work, and a shrink-to-fit column makes that measurement circular. The alternative is a per-page
 measure-then-pin, which stage 1 briefly had; it was removed so that all six pages behave the same.
 
+## 10. JTTY page (2026-09-27)
+
+`#jtty` is a separate page with its own audio, ported from WSJT-X 3.2's Fortran rather than from
+wsjtr (whose `jttyr` receiver is where these receiver defaults came from, but which was not
+available here). It does not share `app.audio`: JTTY has no slots and the sample is 30 s, so the
+top bar's open WAV (one 15 s FT8 slot) does not apply; the page has its own "open a JTTY WAV".
+
+- **Speed.** The receiver needs about 25 000 FFTs of 8192 points for the sample (one per 2 ms
+  column of every window's sync surface, retro re-sweeps included): 12 s in a worker on this
+  container, against 1 s for the Fortran with FFTW. It streams window by window, so the page is
+  usable at once. A pruned or chirp-z FFT buys at most ~25%; not done.
+- **Memory.** Each window's surface is kept quantized (0.25 dB steps, ~200 KB), about 12 MB for
+  the sample; a constrained device drops the run on unmount.
+- **Upstream quirk, ported as is.** `pack_jtty` passes `trim(word)` to
+  `pack77_arrl_section_index`, which returns -1 for anything under 3 characters, so two-letter
+  ARRL sections (`1D CT`, `2A DX`, `3F AB`) never pack as CLASS_SECTION from typed text and go
+  out as TEXT5. The native Field Day macro path is unaffected. Worth reporting upstream.
+- **Mobile nav links were 41 px tall** in this container's Chromium (before this change too), which
+  failed `cdp_check.mjs --mobile`. They now have `min-height:44px` under `pointer: coarse`.
+- Open: the trellis view shows the L=1 rung well; at L=4 (24 columns of 16-way branches) the
+  heatmap is harder to read. A rank-sorted view of the survivor metrics might say more.
+
 ## How to resume
 
 ```bash
 npm start                       # serve on :8765
 npm test                        # Node decode check vs wsjtr's list
+node tools/jtty_test.mjs        # JTTY port vs WSJT-X's Fortran (--quick skips the 10 s receiver run)
 node tools/cdp_check.mjs        # drives every page/tab in headless Chrome
 node tools/cdp_check.mjs --mobile   # the same sweep at 390x844 with touch; exits 1 on a finding
 node tools/cdp_shot.mjs <page> out.png "<js to run first>"

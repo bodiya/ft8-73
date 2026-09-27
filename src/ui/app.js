@@ -20,6 +20,7 @@ const STAGES = [
   { id: 'ldpc', title: '3 · LDPC', load: () => import('../vis/stage3_ldpc.js') },
   { id: 'passes', title: '4 · Subtraction', load: () => import('../vis/stage4_passes.js') },
   { id: 'encode', title: 'E · Encode', load: () => import('../vis/stage5_encode.js') },
+  { id: 'jtty', title: 'J · JTTY', load: () => import('../vis/jtty.js') },
 ];
 
 /**
