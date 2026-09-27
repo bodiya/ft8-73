@@ -5,7 +5,7 @@ import { unpack77 } from './unpack77.js';
 const NTOKENS = 2063592, MAX22 = 4194304, MAXGRID4 = 32400;
 const A1 = ' 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', A2 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', A3 = '0123456789', A4 = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const BASE38 = ' 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ/', FT_CHARS = ' 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+-./?';
-const FIELD_DAY_SECTIONS = 'AB AK AL AR AZ BC CO CT DE EB EMA ENY EPA EWA GA GH IA ID IL IN KS KY LA LAX NS MB MDC ME MI MN MO MS MT NC ND NE NFL NH NL NLI NM NNJ NNY TER NTX NV OH OK ONE ONN ONS OR ORG PAC PR QC RI SB SC SCV SD SDG SF SFL SJV SK SNJ STX SV TN UT VA VI VT WCF WI WMA WNY WPA WTX WV WWA WY DX PE NB'.split(' ');
+export const FIELD_DAY_SECTIONS = 'AB AK AL AR AZ BC CO CT DE EB EMA ENY EPA EWA GA GH IA ID IL IN KS KY LA LAX NS MB MDC ME MI MN MO MS MT NC ND NE NFL NH NL NLI NM NNJ NNY TER NTX NV OH OK ONE ONN ONS OR ORG PAC PR QC RI SB SC SCV SD SDG SF SFL SJV SK SNJ STX SV TN UT VA VI VT WCF WI WMA WNY WPA WTX WV WWA WY DX PE NB'.split(' ');
 const RTTY_MULTS = ('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY NB NS QC ON MB SK AB BC NWT NF LB NU YT PEI DC DR FR GD GR OV ZH ZL').split(' ').concat(Array.from({ length: 99 }, (_, i) => 'X' + String(i + 1).padStart(2, '0')));
 
 const isDigit = c => c >= '0' && c <= '9', isAlpha = c => c >= 'A' && c <= 'Z';
@@ -51,7 +51,7 @@ export function pack28(callsign) {
 function cqSuffixValue(s) { let m = 0; for (const ch of s.padStart(4)) m = 27 * m + (isAlpha(ch) ? ch.charCodeAt(0) - 64 : 0); return m; }
 
 /** unpack28 (mirror of unpack77.js, needed here for field annotation). */
-function unpack28(n28) {
+export function unpack28(n28) {
   if (n28 === 0) return 'DE'; if (n28 === 1) return 'QRZ'; if (n28 === 2) return 'CQ';
   if (n28 < 1003) return 'CQ ' + String(n28 - 3).padStart(3, '0');
   if (n28 < NTOKENS) { let m = n28 - 1003, s = ''; for (let k = 0; k < 4; k++) { const j = m % 27; m = Math.floor(m / 27); if (j > 0) s = String.fromCharCode(64 + j) + s; } return s ? 'CQ ' + s : 'CQ'; }
