@@ -58,7 +58,7 @@ coarser, and the render cache is smaller.
 `npm test` runs the JS decoder on the bundled window from Node and compares against
 wsjtr's decode list (single pass, depth 3: 30 messages, all 18 of wsjtr's pass-1 decodes).
 Other Node checks: `tools/subtract_test.mjs`, `tools/osd_test.mjs`, `tools/pack77_test.mjs`,
-`tools/baseline_test.mjs`, and `tools/cdp_check.mjs` (drives every page and tab in headless
+`tools/baseline_test.mjs`, `tools/jtty_test.mjs` (the JTTY port against WSJT-X's Fortran), and `tools/cdp_check.mjs` (drives every page and tab in headless
 Chrome and reports exceptions). `tools/cdp_shot.mjs <page> <out.png> [js]` screenshots a page
 after running some JS in it. Both CDP tools take a phone viewport: `cdp_check.mjs --mobile`
 re-runs the whole sweep at 390x844 with touch emulation, tapping with real touch events and
@@ -79,6 +79,7 @@ worker and its decodes become the reference overlay on every page.
 | 3 · LDPC | 174 LLRs colored by message field, belief propagation animated per iteration in four views (`#ldpc/tanner`, `#ldpc/circle`, `#ldpc/heat`, `#ldpc/check`), convergence plot, decoded bits and message. Two more views for what happens when BP fails: the OSD fallback (reliability sort, information set, flip pool, winning pattern) and a-priori decoding (CQ / MyCall) | LLR set (a–e), amplitude vs power metric, iterations, early stop, LLR scale, added noise, OSD order and source, AP hypothesis |
 | 4 · Subtraction | Two views: wsjtr's recorded per-pass input audio side by side (`#passes/recorded`), or this JS decoder's own three passes (depth 1 → 2 → 3 with subtraction between) run live in a worker (`#passes/live`) | frequency zoom |
 | E · Encode | Message → 77 bits (annotated fields) → CRC-14 → 174 LDPC bits → 79 Gray-coded tones → GFSK waveform, spectrogram and spectrum; play it, add noise, hand it to the decoder pages | message, audio frequency, SNR |
+| J · JTTY | WSJT-X 3.2's asynchronous RTTY-style mode, on its own audio (the WSJT-X sample, a transmission made here, or a JTTY WAV you open). Four views: the recording with the receive window filling in as frames decode (`#jtty/signal`); text → fewest frames → 34 bits → CRC-12 → K=10 tail-biting convolutional encoder (shift register animated) → 4-GFSK (`#jtty/encode`); the per-window sync surface, candidate floor, channels, picks and sync gate (`#jtty/sync`); the list-Viterbi trellis over 512 states and the L=1/2/4 coherent ladder (`#jtty/trellis`) | QSO window centre and width, added noise; message, exchange profile, frequency, SNR; surface span; added correlation noise, frequency error, coherent length, list width, wraps |
 
 The transport bar (play / stop / speed / loop / scrub, space toggles play) drives whatever
 the current page animates: audio time on page 0, the template lag sweep on page 1, the
@@ -155,6 +156,13 @@ src/dsp/              the decoder, ported from wsjtr
   resample.js         Kaiser-windowed sinc resampler for user WAVs
   worker.js           Web Worker: multi-pass decode with subtraction
   pipeline.js         decodeCandidate(): everything above, returning a full trace
+  jtty/               JTTY, ported from WSJT-X 3.2 lib/jtty (not from wsjtr)
+    codec.js          source atoms, pack/unpack/render, the minimum-frame packer  (jtty_source_codec.f90, jtty_mod.f90)
+    fec.js            CRC-12, TBCC encode, list-Viterbi WAVA decoder and ladder    (tbcc.f90, jtty_tbcc_list_decoder.f90, jtty_tbcc_decoder.f90)
+    wave.js           GFSK modulator, sync template, AWGN simulator                (gen_jttywave.f90, gen_syncwave.f90, sjtty.f90)
+    receiver.js       analytic signal, sync surface, picks, gate, peakup, subtraction, message assembly, retro re-sweeps (jtty_mdecode.f90, jtty_peakup.f90, subtract_jtty.f90, ana64a.f90)
+    fft2.js           power-of-two FFT for the receiver
+    worker.js         Web Worker: streams the receiver's per-window trace to the page
 src/ui/               app shell, transport clock, drawing helpers, control builders
   app.js              state, #page/view routing, data loading, worker wiring, idle warm-up
   draw.js             colormaps, cached heatmap renderer, axes, line plots
@@ -183,6 +191,16 @@ WSJT-X 52). Passes in the decode list are inferred from arrival-time bursts.
   pass (the JS run does one subtraction round per pass).
 - The `pass` field in the bundled decode list is inferred from wsjtr's output bursts; each
   outer pass there contains several internal decode/subtract rounds.
+- JTTY (`src/dsp/jtty/`) is ported from the Fortran in WSJT-X 3.2 (`lib/jtty` on the
+  `jtty-receiver-defaults` branch, e3ffc38), with its receiver defaults. `tools/jtty_test.mjs`
+  checks it against Fortran output: the spec's 34-bit vectors, 103 frames and their tones from
+  `pack_jtty` + `tbcc_encode`, 119 list-decoder hypotheses from `jtty_tbcc_list_wava`, and
+  `rjtty`'s decode of the WSJT-X sample (frequency, start, SNR, sync count, symbol errors, text:
+  identical). During the port the receiver was also compared with `rjtty` on 11 synthetic files
+  made with `sjtty` (weak, Watterson-faded, channels 1 and 2, five overlapping stations): same
+  decodes, frequencies within 0.1 Hz. The sync surface uses a full 8192-point FFT per column
+  where the Fortran uses the equivalent chirp-z transform. `data/260807_134110.wav` is
+  `samples/JTTY/260807_134110.wav` from WSJT-X.
 
 ## The name
 

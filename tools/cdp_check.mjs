@@ -249,6 +249,27 @@ for (let i = 0; i < 60 && !(await evaluate('app.truth.js && app.truth.js.length 
 console.log(' js decodes on synthetic:', await evaluate('JSON.stringify(app.truth.js.map(d=>[d.message,d.snr,d.freq,d.dt]))'));
 await go('candidate'); await sleep(500); console.log(' stage2 on synthetic:', await evaluate('app.trace && app.trace.result && app.trace.result.message.text'));
 await evaluate(`document.getElementById('btn-example').click()`); await sleep(1500); console.log('back to example:', await evaluate('app.name'), await evaluate('app.candidates.length'));
+// JTTY: its own audio and its own worker. Wait for the streaming decode, then walk the four views.
+await go('jtty/signal'); await sleep(500);
+const jttyDone = () => evaluate(`[...document.querySelectorAll('.controls .stats')].some(e => / windows, /.test(e.textContent))`);
+for (let i = 0; i < 80 && !(await jttyDone()); i++) await sleep(500);
+console.log('jtty decode:', await evaluate(`[...document.querySelectorAll('.controls .stats')].map(e => e.textContent).join(' | ')`));
+console.log(' receive:', await evaluate(`(app.clock.seek(29), new Promise(r => setTimeout(() => r(document.querySelector('.panel div[style*="pre-wrap"]').textContent), 200)))`));
+await evaluate(`document.querySelectorAll('table.list tr[data-i]')[2].click()`);
+console.log(' try this:', await tryAll(), 'experiments'); await play(600); await evaluate('app.clock.setSpeed(1)'); await sleep(800);
+for (let i = 0; i < 120 && !(await jttyDone()); i++) await sleep(500);   // "bury it in noise" reruns the decoder
+console.log(' with noise:', await evaluate(`[...document.querySelectorAll('.controls .stats')].map(e => e.textContent).join(' | ')`));
+await slider(0, 0); await sleep(800); for (let i = 0; i < 80 && !(await jttyDone()); i++) await sleep(500);
+console.log(' tab', await tab(1)); await sleep(400); console.log(' try this:', await tryAll(), 'experiments'); await play(700);
+await evaluate(`(()=>{const i=document.querySelector('.controls input[type=text]'); i.value='TU NOW JA6DEF 599 102'; i.dispatchEvent(new Event('input'));})()`); await sleep(500);
+console.log(' encode:', await evaluate(`document.querySelector('.stagemain .panel .stats').textContent`));
+console.log(' tab', await tab(2)); await sleep(400); console.log(' try this:', await tryAll(), 'experiments'); await play(1200);
+await evaluate(`app.clock.seek(1.42)`); await sleep(300); await canvasClick(1, 0.5, 0.5); await evaluate(`document.querySelectorAll('table.list tr[data-i]')[0] && document.querySelectorAll('table.list tr[data-i]')[0].click()`);
+for (let i = 0; i < 80 && !(await jttyDone()); i++) await sleep(500);
+console.log(' sync:', await evaluate(`[...document.querySelectorAll('.note')].map(e => e.textContent).find(t => t.startsWith('Window')) || 'no window note'`));
+await slider(1, 1500); await sleep(800); for (let i = 0; i < 80 && !(await jttyDone()); i++) await sleep(500);
+console.log(' tab', await tab(3)); await sleep(400); console.log(' try this:', await tryAll(), 'experiments'); await play(800);
+console.log(' trellis:', await evaluate(`document.querySelector('.stagemain .panel .stats').textContent`));
 await go('home');
 if (M) {
   console.log(layout.length ? 'MOBILE LAYOUT:\n  ' + layout.join('\n  ') : 'mobile layout: no overflow, no unreachable taps, no small tap targets');
