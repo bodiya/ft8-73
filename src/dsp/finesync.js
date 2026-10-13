@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // Fine sync + symbol extraction on the 200 Hz baseband. Port of wsjt_ft8.rs (ft8b.f90 / sync8d.f90).
 import { fft } from './fft.js';
 import { COSTAS } from './constants.js';

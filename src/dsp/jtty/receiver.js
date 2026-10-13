@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // The JTTY receiver: an asynchronous, streaming decoder.
 // Port of WSJT-X 3.2 lib/jtty/jtty_mdecode.f90 (module jtty_mdec: jtty_mdecode, jtty_mdecode_step,
 // message assembly), rjtty.f90 (the chunk loop), ana64a.f90, jtty_peakup.f90

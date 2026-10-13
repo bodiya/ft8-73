@@ -1,9 +1,10 @@
 # Pending decisions and where to pick up
 
-Status as of 2026-09-09: every page runs end to end on a desktop and on a phone;
-`node tools/cdp_check.mjs` and `node tools/cdp_check.mjs --mobile` both pass clean. Sections 1 to 3 were open choices and are now decided (keep every view, and integrate
-them properly); the rest are loose ends noticed while building. Nothing here blocks use of the
-app.
+Status as of 2026-10-13: every page, JTTY included, runs end to end on a desktop and on a phone;
+`node tools/cdp_check.mjs` and `node tools/cdp_check.mjs --mobile` both pass clean. Sections 1 to
+3 were open choices and are now decided (keep every view, and integrate them properly); section 11
+records the licensing settled before the repo went public; the rest are loose ends noticed while
+building. Nothing here blocks use of the app.
 
 ## 1. Stage-1 template animations: all three kept
 
@@ -83,8 +84,6 @@ subtraction rounds. If exact per-round residuals matter, add a debug dump to wsj
   the "try:" list only shows standard and free-text messages.
 - "Open WAV" accepts any length >= 12.64 s and truncates to 15 s; there is no UI for
   choosing which 15 s of a longer file.
-- Narrow screens scroll the panels sideways rather than reflowing. The canvases are fixed-width
-  pixel plots (1000-1060 px); a real mobile layout would mean parameterising every plot's size.
 - The stage-1 causal ladder holds about 60 MB of sync surfaces while that view is open. Freed on
   leaving the page. If that ever matters, the cheap parts (hits, candidates) are ~2 MB and only
   the surfaces would need an LRU plus a prefetch-ahead loop.
@@ -222,13 +221,13 @@ measure-then-pin, which stage 1 briefly had; it was removed so that all six page
 ## 10. JTTY page (2026-09-27)
 
 `#jtty` is a separate page with its own audio, ported from WSJT-X 3.2's Fortran rather than from
-wsjtr (whose `jttyr` receiver is where these receiver defaults came from, but which was not
-available here). It does not share `app.audio`: JTTY has no slots and the sample is 30 s, so the
+wsjtr (whose `jttyr` receiver is where these receiver defaults came from, but which was not to hand
+when the port was written). It does not share `app.audio`: JTTY has no slots and the sample is 30 s, so the
 top bar's open WAV (one 15 s FT8 slot) does not apply; the page has its own "open a JTTY WAV".
 
 - **Speed.** The receiver needs about 25 000 FFTs of 8192 points for the sample (one per 2 ms
-  column of every window's sync surface, retro re-sweeps included): 12 s in a worker on this
-  container, against 1 s for the Fortran with FFTW. It streams window by window, so the page is
+  column of every window's sync surface, retro re-sweeps included): 12 s in a worker on the
+  machine it was built on, against 1 s for the Fortran with FFTW. It streams window by window, so the page is
   usable at once. A pruned or chirp-z FFT buys at most ~25%; not done.
 - **Memory.** Each window's surface is kept quantized (0.25 dB steps, ~200 KB), about 12 MB for
   the sample; a constrained device drops the run on unmount.
@@ -236,10 +235,39 @@ top bar's open WAV (one 15 s FT8 slot) does not apply; the page has its own "ope
   `pack77_arrl_section_index`, which returns -1 for anything under 3 characters, so two-letter
   ARRL sections (`1D CT`, `2A DX`, `3F AB`) never pack as CLASS_SECTION from typed text and go
   out as TEXT5. The native Field Day macro path is unaffected. Worth reporting upstream.
-- **Mobile nav links were 41 px tall** in this container's Chromium (before this change too), which
+- **Mobile nav links were 41 px tall** in headless Chromium (before this change too), which
   failed `cdp_check.mjs --mobile`. They now have `min-height:44px` under `pointer: coarse`.
 - Open: the trellis view shows the L=1 rung well; at L=4 (24 columns of 16-way branches) the
   heatmap is harder to read. A rank-sorted view of the survivor metrics might say more.
+
+## 11. Licensing and going public (2026-10-13)
+
+Decision: **GPL-3.0-only**, copyright Brian Bodiya (KC1WIH). WSJT-X ships the plain GPLv3 text
+with no "or any later version" grant, and wsjtr says "GPLv3", so "only" matches both.
+
+- `LICENSE` is the unmodified FSF GPLv3 text. `package.json` has `"license": "GPL-3.0-only"` (the
+  bare `GPL-3.0` id is deprecated in SPDX) and `"author": "Brian Bodiya KC1WIH"`.
+- Every `.js`, `.mjs`, `.css`, `.html` and `.yml` file starts with the same two-line notice as
+  wsjtr's sources. The 17 `src/dsp` files that port WSJT-X code, directly (JTTY) or through wsjtr
+  (the FT8 chain, `constants.js` and `ldpc_tables.js`), add the WSJT-X notice, "Copyright 2001 -
+  2026 by Joe Taylor, K1JT, and the WSJT Development Team", as wsjtr's own ports do. Glue and UI
+  code, the FFTs, the resampler and the WAV reader do not. CLAUDE.md says to do the same for new
+  files.
+- The README has a License section and the page footer carries the copyright line.
+- The JTTY port used to cite the `jtty-receiver-defaults` branch, which does not exist on the
+  public `bodiya/wsjtx`. Citations now name commit e3ffc38, which does.
+- `tools/pack77_test.mjs` no longer hard-codes a home-directory path to `ft8coder`: it reads
+  `$FT8CODER`, else looks for a release build in a sibling `wsjtr` or `wsjtr-public` checkout, and
+  skips those comparisons when there is none (as it always did when the binary was missing).
+
+Left alone on purpose:
+
+- The old absolute `ft8coder` path is still in git history. It is harmless, and removing it would
+  mean rewriting every commit.
+- The `source` / `decoder` strings inside `data/*.json` still say `hamx cap-3-attempt2` and
+  `branch jtty-receiver-defaults`. They record how the files were made, so they stay as written.
+- The bundled FT8 recording carries other stations' callsigns. They are public on-air
+  transmissions of the kind PSKReporter already publishes.
 
 ## How to resume
 

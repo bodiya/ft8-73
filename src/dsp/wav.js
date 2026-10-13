@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Minimal WAV reader: 16-bit PCM (mono or first channel) -> Float32Array samples in [-32768, 32767] range
 // (kept as integer-scale floats, matching what wsjtr/WSJT-X feed into the decoder).
 export function parseWav(buf) {

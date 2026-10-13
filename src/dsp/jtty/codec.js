@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // JTTY source coding: text <-> 34-bit frame payloads.
 // Port of WSJT-X 3.2 lib/jtty/jtty_source_codec.f90 (atoms, pack/unpack/render) and jtty_mod.f90
 // (pack_jtty's minimum-frame dynamic program, normalize_jtty_message, unpack_jtty).

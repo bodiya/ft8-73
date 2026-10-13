@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // JTTY forward error correction: CRC-12, a tail-biting rate-1/2 K=10 convolutional code, and the
 // list-Viterbi (WAVA) decoder with its L = 1, 2, 4 coherent ladder.
 // Ports of WSJT-X 3.2 lib/jtty/tbcc.f90 (tbcc_encode, encode_crc12), jtty_tbcc_code_profile.f90

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Interactive visualizations of the FT8 decode pipeline",
   "type": "module",
-  "license": "GPL-3.0",
+  "author": "Brian Bodiya KC1WIH",
+  "license": "GPL-3.0-only",
+  "repository": "github:bodiya/ft8-73",
   "scripts": {
     "start": "python3 -m http.server 8765",
     "stop": "pkill -f '[h]ttp.server 8765' || true",

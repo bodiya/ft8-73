@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // FT8 LDPC(174,91) tables, extracted from wsjtr ft8core (ldpc.rs, ldpc_decode.rs),
 // which in turn come from WSJT-X (GPLv3, K1JT et al.).
 

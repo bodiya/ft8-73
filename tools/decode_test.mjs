@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Node harness: run the JS pipeline on the bundled window and compare with wsjtr's decode list.
 import fs from 'node:fs';
 import { parseWav } from '../src/dsp/wav.js';

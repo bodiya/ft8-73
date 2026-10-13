@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // A-priori (AP) decoding helpers. Port of apply_ap_cq / apply_ap_mycall (wsjtr wsjt_ft8.rs, WSJT-X ft8b.f90)
 // and callsign_to_ap_bits (ft8core pack77.rs, WSJT-X ft8apset.f90).
 // LLR convention here: NEGATIVE => bit 1 (jt9r convention, as in ldpc.js / pipeline.js).

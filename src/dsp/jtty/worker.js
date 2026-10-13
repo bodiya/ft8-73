@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Web Worker: run the JTTY receiver over a recording chunk by chunk and stream what it did.
 // Each forward decode window posts its sync surface (quantized), its picks and any new frame
 // decodes, so the page can show a streaming decoder streaming.

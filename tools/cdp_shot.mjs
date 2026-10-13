@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Screenshot a stage after running some JS in the page.
 // Usage: node tools/cdp_shot.mjs <hash> <out.png> [js-expression] [--viewport=390x844[@2]] [--full]
 // --viewport puts Chrome in a phone viewport with touch (DPR defaults to 2, which is what the app's

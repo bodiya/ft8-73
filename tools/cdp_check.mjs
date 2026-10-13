@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Drive the app in headless Chrome over CDP: visit every stage and tab, poke controls, report console errors/exceptions.
 // --mobile[=WxH@DPR] runs the same sweep in a phone viewport with touch emulation (default 390x844@3) and adds a
 // layout audit: content past the viewport, content clipped out of reach, taps that land nowhere, small tap targets.

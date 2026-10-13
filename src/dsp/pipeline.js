@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Glue: run the whole per-candidate decode with a full trace for visualization.
 import { Downsampler } from './downsample.js';
 import { fineSync, timeRefine, extractSymbolBins, syncQuality, hardTones } from './finesync.js';

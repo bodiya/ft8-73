@@ -6,7 +6,8 @@ DSP pipeline at a time. Every page runs the real algorithms in JavaScript on a r
 in, say, the noise-floor percentile or the sync threshold changes what gets decoded.
 
 The algorithms are ports of [wsjtr](https://github.com/bodiya/wsjtr) (Rust), which is in
-turn a port of WSJT-X by K1JT and the WSJT Development Group. Both are GPLv3, and so is this.
+turn a port of WSJT-X by K1JT and the WSJT Development Group. Both are GPLv3, and so is this
+(see [License](#license)).
 
 ## Run it
 
@@ -174,9 +175,9 @@ tools/                Node test harness and a CDP smoke test
 .nojekyll, _headers   static-hosting bits (see "Host it")
 ```
 
-The example window is 2026-07-26 19:09:30 UTC on 14.074 MHz, the busiest window of the
-HamX capture run (wsjtr 51 decodes in 3 passes with `-p 3 -d 1,1,3 --my-call KC1WIH`,
-WSJT-X 52). Passes in the decode list are inferred from arrival-time bursts.
+The example window is 2026-07-26 19:09:30 UTC on 14.074 MHz, the busiest window of a set of
+recordings made at HamX, a ham radio conference (wsjtr 51 decodes in 3 passes with
+`-p 3 -d 1,1,3 --my-call KC1WIH`, WSJT-X 52). Passes in the decode list are inferred from arrival-time bursts.
 
 ## Faithfulness notes
 
@@ -191,11 +192,11 @@ WSJT-X 52). Passes in the decode list are inferred from arrival-time bursts.
   pass (the JS run does one subtraction round per pass).
 - The `pass` field in the bundled decode list is inferred from wsjtr's output bursts; each
   outer pass there contains several internal decode/subtract rounds.
-- JTTY (`src/dsp/jtty/`) is ported from the Fortran in WSJT-X 3.2 (`lib/jtty` on the
-  `jtty-receiver-defaults` branch, e3ffc38), with its receiver defaults. `tools/jtty_test.mjs`
-  checks it against Fortran output: the spec's 34-bit vectors, 103 frames and their tones from
-  `pack_jtty` + `tbcc_encode`, 119 list-decoder hypotheses from `jtty_tbcc_list_wava`, and
-  `rjtty`'s decode of the WSJT-X sample (frequency, start, SNR, sync count, symbol errors, text:
+- JTTY (`src/dsp/jtty/`) is ported from the Fortran in WSJT-X 3.2 (`lib/jtty` at
+  [bodiya/wsjtx e3ffc38](https://github.com/bodiya/wsjtx/tree/e3ffc38/lib/jtty)), with its
+  receiver defaults. `tools/jtty_test.mjs` checks it against Fortran output: the spec's 34-bit
+  vectors, 103 frames and their tones from `pack_jtty` + `tbcc_encode`, 119 list-decoder
+  hypotheses from `jtty_tbcc_list_wava`, and `rjtty`'s decode of the WSJT-X sample (frequency, start, SNR, sync count, symbol errors, text:
   identical). During the port the receiver was also compared with `rjtty` on 11 synthetic files
   made with `sjtty` (weak, Watterson-faded, channels 1 and 2, five overlapping stations): same
   decodes, frequencies within 0.1 Hz. The sync surface uses a full 8192-point FFT per column
@@ -207,3 +208,18 @@ WSJT-X 52). Passes in the decode list are inferred from arrival-time bursts.
 FT8 syncs on a 7-tone Costas array sent three times, at symbols 0, 36 and 72. Seven,
 three. That is also how a ham signs off, so the sync pattern and "best regards" are the
 same number. Stage 1 is where it clicks; the site does not spoil it.
+
+## License
+
+Copyright (c) 2026 Brian Bodiya (KC1WIH).
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License, version 3, as published by the Free Software Foundation. It is
+distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the
+full text.
+
+The decoding algorithms are derived from WSJT-X, Copyright 2001 - 2026 by Joe Taylor, K1JT, and
+the WSJT Development Team, also licensed under the GPLv3; files that port WSJT-X code say so in
+their header and name the Fortran they came from. `data/260807_134110.wav` is a sample recording
+distributed with WSJT-X.

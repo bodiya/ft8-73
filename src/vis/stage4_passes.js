@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Stage 4: subtraction and multi-pass. Two views of the same idea: wsjtr's recorded per-pass
 // input audio, and this decoder's own passes computed live in a worker.
 //

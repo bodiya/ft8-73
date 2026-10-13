@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Round-trip pack77 -> unpack77 on the bundled decode lists and fixed cases; check the tone chain; compare with ft8coder if present.
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -37,7 +40,8 @@ check(callsignToApBits('K1ABC') && callsignToApBits('K1ABC').length === 29 && ca
 // one for subtraction would not match the received signal.
 const WSJTR_DIVERGES = new Set(['CQ KC1WIH/QRP', 'CQ W9XYZ/MM', '<K1ABC> KC1WIH/QRP RR73', 'KC1WIH/QRP <K1ABC> 73']);
 const CASES = ['CQ K1ABC FN42', 'KN1OBI OK1PVT R-14', 'K1ABC W9XYZ RR73', 'CQ POTA WA9TT EN54', 'TNX BOB 73', 'K1ABC/P W9XYZ FN42', 'CQ KC1WIH/QRP', 'CQ W9XYZ/MM', '<K1ABC> KC1WIH/QRP RR73', 'KC1WIH/QRP <K1ABC> 73', 'KC1WIH TNX 73', 'WA9XYZ KA1ABC R 16A EMA', 'TU; W9XYZ K1ABC R 579 MA', 'CQ DX K1ABC', 'CQ 123 K1ABC', 'C6AVD N4MC +01', 'CQ 9A2L JN83'];
-const coder = '/home/brian/repos/wsjtr-public/target/release/ft8coder';
+// wsjtr's ft8coder: $FT8CODER, else a release build in a wsjtr checkout next to this repo.
+const coder = process.env.FT8CODER || ['wsjtr', 'wsjtr-public'].map(d => new URL(`../../${d}/target/release/ft8coder`, import.meta.url).pathname).find(p => fs.existsSync(p)) || '';
 const ft8code = '/usr/bin/ft8code';
 const haveCoder = fs.existsSync(coder), haveFt8code = fs.existsSync(ft8code);
 let cmp = 0, skipped = 0;

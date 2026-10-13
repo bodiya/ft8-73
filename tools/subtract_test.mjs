@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Subtraction test: decode the raw window, subtract, compare to wsjtr's recorded pass-2 residual, re-decode, and check SNRs.
 import fs from 'node:fs';
 import { parseWav } from '../src/dsp/wav.js';

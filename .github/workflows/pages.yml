@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Brian Bodiya (KC1WIH)
+# Licensed under the GNU GPL, version 3 only. See LICENSE.
+#
 # Publish the app to GitHub Pages. There is no build: the repo is already a static site, so this
 # only copies the files the site needs into _site and hands that to Pages.
 #

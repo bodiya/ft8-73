@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // In-place iterative radix-2 complex FFT for the power-of-two sizes the JTTY receiver uses
 // (8192 for the sync surface, 16384 and 32768 for the analytic signal and subtraction).
 // Same conventions as WSJT-X four2a: forward is exp(-j...), inverse is exp(+j...), neither scaled.

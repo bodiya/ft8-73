@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Encode side: message -> 77 bits -> CRC -> LDPC -> Gray tones -> GFSK audio.
 //
 // Drawing is split into a background layer that depends only on the controls (message, audio

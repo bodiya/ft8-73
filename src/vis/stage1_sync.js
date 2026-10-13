@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Stage 1: coarse sync. Sync spectrum + full surface + three animated views of the template, with the real knobs.
 //
 // Performance shape: the sync spectrum and the surface depend only on the sync parameters (and,

@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // Message packing: text -> 77 bits. Port of wsjtr ft8core pack77.rs + call_hash.rs (WSJT-X packjt77.f90).
 // Also describeBits77(): a field-by-field annotation of any 77-bit payload, for visualization.
 import { unpack77 } from './unpack77.js';

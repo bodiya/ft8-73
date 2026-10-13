@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Stage 3: LLRs, belief propagation (four views), OSD and AP tabs.
 import { decodeCandidate } from '../dsp/pipeline.js';
 import { bpDecodeTrace, graph, N, K, M } from '../dsp/ldpc.js';

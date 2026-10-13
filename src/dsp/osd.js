@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // Ordered-statistics decoding (OSD) for the FT8 (174,91) code, plus BP-with-zsum and the BP→OSD hybrid.
 // Port of wsjtr ft8core osd.rs / ldpc_decode.rs bp_decode_with_zsum_saves (WSJT-X osd174_91.f90, decode174_91.f90).
 // Sign convention (same as ldpc.js): NEGATIVE LLR => bit 1.

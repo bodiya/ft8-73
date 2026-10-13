@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Shared transport clock: t in [0,duration), play/pause, speed (multiplier), loop.
 export class Clock {
   constructor() { this.t = 0; this.duration = 15; this.playing = false; this.speed = 1; this.loop = true; this.subs = new Set(); this._last = null; this._raf = null; this.onEnd = null; }

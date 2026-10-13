@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // OSD / AP test: (a) noise margin gained by OSD on one candidate, (b) full window at depth 3 vs wsjtr's list.
 import fs from 'node:fs';
 import { parseWav } from '../src/dsp/wav.js';

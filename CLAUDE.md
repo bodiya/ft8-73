@@ -7,9 +7,10 @@ Guidance for Claude Code when working in this repository.
 A no-build, static web app of interactive visualizations that teach how an FT8 decoder
 works, one page per DSP stage, with live-tweakable parameters and a shared transport clock.
 Every algorithm is a JavaScript port of Brian's Rust decoder **wsjtr**
-(`~/repos/wsjtr-public`, itself a port of WSJT-X). Faithfulness to wsjtr is the rule: when
-adding or changing DSP, port from the Rust rather than inventing, and cite the Rust/Fortran
-origin in a comment. License is GPLv3 (inherited from WSJT-X).
+(https://github.com/bodiya/wsjtr, usually checked out next to this repo as `../wsjtr-public`;
+itself a port of WSJT-X). Faithfulness to wsjtr is the rule: when adding or changing DSP, port
+from the Rust rather than inventing, and cite the Rust/Fortran origin in a comment. License is
+GPL-3.0-only (WSJT-X is GPLv3).
 
 ## Run and test
 
@@ -59,6 +60,9 @@ DECISIONS.md            pending choices and loose ends; update it when they chan
 
 ## Conventions
 
+- Every source file starts with the copyright header: `Copyright (c) 2026 Brian Bodiya (KC1WIH)`
+  and `Licensed under the GNU GPL, version 3 only. See LICENSE.` A file that ports WSJT-X code
+  (directly or through wsjtr) adds the two-line WSJT-X notice; copy it from any `src/dsp` port.
 - Plain ES modules, no dependencies, no bundler. Keep it that way so it hosts anywhere.
 - Page module shape: `export default { mount(root, app), unmount() }`. Guard on
   `app.ready`; subscribe to `app.clock` and `app.on(...)` and push the unsubscribers into a
@@ -132,7 +136,7 @@ Do not add document-relative `fetch()` or `new Worker()` paths.
 ## JTTY
 
 The `#jtty` page is the exception to "port from wsjtr": JTTY is ported from WSJT-X 3.2's Fortran
-(`lib/jtty` on the `jtty-receiver-defaults` branch of Brian's wsjtx fork), with the Fortran file
+(`lib/jtty` at commit e3ffc38 of https://github.com/bodiya/wsjtx), with the Fortran file
 cited in each module. It runs on its own audio (`st.audio` in `src/vis/jtty.js`), not `app.audio`,
 and its receiver runs in `src/dsp/jtty/worker.js`, streaming one decode window at a time. After a
 change to `src/dsp/jtty`, run `node tools/jtty_test.mjs`; its fixtures were made by Fortran
@@ -142,7 +146,7 @@ drivers linked against that code, and a change that moves a hypothesis or a deco
 
 `data/260807_134110.wav` is WSJT-X's `samples/JTTY/260807_134110.wav`, and
 `data/260807_134110.jtty.json` is `rjtty 2.6 1 384 1500 50` run on it.
-`data/260726_190930*.wav` and the decode JSON come from the HamX capture
-`~/ham/hamx/data/cap-3-attempt2` (2026-07-26 19:09:30 UTC, 20 m). The `pass` field was
+`data/260726_190930*.wav` and the decode JSON come from recordings made at HamX, a ham radio
+conference (capture set `cap-3-attempt2`, 2026-07-26 19:09:30 UTC, 20 m). The `pass` field was
 inferred from wsjtr's output bursts; wsjtr's `passN.wav` is the input to outer pass N,
 which internally ran several decode/subtract rounds.

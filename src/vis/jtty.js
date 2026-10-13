@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // J · JTTY: WSJT-X 3.2's keyboard-to-keyboard mode, one page with four views.
 //
 //   #jtty/signal   the recording, the receive window as it fills, and the decode log

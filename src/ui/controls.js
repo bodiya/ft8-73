@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Tiny control builders. Each returns the wrapper element; value getters via .value.
 export function slider(parent, { label, min, max, step = 1, value, fmt = v => v, oninput }) {
   const w = document.createElement('div'); w.className = 'ctl';

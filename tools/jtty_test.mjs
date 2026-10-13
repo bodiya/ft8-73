@@ -1,4 +1,7 @@
-// JTTY port checks against WSJT-X 3.2's Fortran (lib/jtty on the jtty-receiver-defaults branch).
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
+// JTTY port checks against WSJT-X 3.2's Fortran (lib/jtty at bodiya/wsjtx e3ffc38).
 //   node tools/jtty_test.mjs          everything, including the ~10 s receiver run
 //   node tools/jtty_test.mjs --quick  skip the receiver run
 // Fixtures in tools/fixtures were produced by small Fortran drivers linked against that code:

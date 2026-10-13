@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Web Worker: run the JS decoder on a window (multi-pass when subtraction is available) and post compact decodes.
 import { spectrogram, syncSurface, syncHits, dedupeCandidates, dropToneSums } from './sync.js';
 import { DecodeContext, decodeCandidate } from './pipeline.js';

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Canvas drawing helpers: colormaps, heatmaps, axes, line plots.
 
 // Viridis-ish (8 anchor colors, interpolated)

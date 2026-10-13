@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Mixed-radix complex FFT (any length). Split real/imag Float64Arrays.
 // Sizes used by the FT8 pipeline: 3840 (2^8*3*5), 192000 (2^9*3*5^3), 3200 (2^7*5^2), 32.
 //

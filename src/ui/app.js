@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // App shell: loads the example window, runs the shared front-end DSP once, hosts stages, owns the transport clock.
 import { loadWav } from '../dsp/wav.js';
 import { spectrogram, syncSurface, syncHits, dedupeCandidates } from '../dsp/sync.js';

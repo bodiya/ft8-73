@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // JTTY waveforms: the GFSK modulator, the sync template, and a transmission simulator.
 // Ports of WSJT-X 3.2 lib/jtty/gen_jttywave.f90, gen_syncwave.f90, genjtty.f90 and sjtty.f90
 // (the AWGN path; no Watterson fading), plus lib/gfsk_pulse.f90.

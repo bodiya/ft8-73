@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Stage 2: one candidate -> baseband -> fine sync -> the 79x8 tone grid.
 //
 // The grid and the baseband envelope depend only on the selected candidate and the nudge

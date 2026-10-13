@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // FT8 waveform synthesis and signal subtraction.
 // Port of wsjtr subtract_ft8.rs / gen_ft8wave.rs (WSJT-X subtractft8.f90, gen_ft8wave.f90, peakup.f90).
 import { fft } from './fft.js';

@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // Spectrum baseline (noise floor) and SNR. Port of wsjtr snr.rs (WSJT-X get_spectrum_baseline.f90, baseline.f90,
 // polyfit.f90, determ.f90) and the SNR arithmetic of wsjt_ft8.rs / ft8b.f90.
 import { powerSpectrum } from './fft.js';

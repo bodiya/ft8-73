@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // Port of wsjtr wsjt_ft8.rs Ft8Downsampler (WSJT-X ft8_downsample.f90):
 // 192000-point FFT of the whole window, extract ~62.5 Hz around f0, taper, shift carrier to DC,
 // 3200-point inverse FFT -> 200 Hz complex baseband (32 samples per symbol), NP2 = 2812 useful samples.

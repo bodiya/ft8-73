@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Stage 0: the raw signal. Waterfall with adjustable resolution, decode-box overlay, waveform + audio playback.
 //
 // The waterfall is a background layer (heatmap, axes, decode boxes) plus a transparent overlay

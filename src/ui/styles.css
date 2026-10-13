@@ -1,3 +1,5 @@
+/* Copyright (c) 2026 Brian Bodiya (KC1WIH)
+   Licensed under the GNU GPL, version 3 only. See LICENSE. */
 :root { --bg:#0f1218; --panel:#171c26; --ink:#e6e9ef; --muted:#8b93a3; --line:#2a3242; --accent:#4ea1ff; --orange:#ff8c42; --green:#3ddc97; --red:#ff5c5c; --yellow:#ffd166; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 * { box-sizing: border-box; }
 /* Without this iOS Safari inflates the body text of long blocks by its own factor, which shifts

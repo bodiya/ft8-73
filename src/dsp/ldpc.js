@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // LDPC(174,91) belief-propagation decoder + encoder + CRC-14. Port of wsjtr ft8core (decode174_91.f90).
 import { MN, GENERATOR_HEX } from './ldpc_tables.js';
 

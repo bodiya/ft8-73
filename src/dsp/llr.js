@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // Soft-symbol -> LLR metrics. Port of llr_passes_from_bins in wsjt_ft8.rs (ft8b.f90 "bmet").
 import { GRAY_MAP } from './constants.js';
 

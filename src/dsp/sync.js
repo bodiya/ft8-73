@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+// Derived from WSJT-X (https://wsjt.sourceforge.io/). Copyright 2001 - 2026 by Joe Taylor, K1JT,
+// and the WSJT Development Team. Licensed under GPLv3.
+//
 // Coarse sync: port of wsjtr sync.rs (WSJT-X sync8.f90).
 import { powerSpectrum } from './fft.js';
 import { FS, NSPS, COSTAS, NFFT_SYNC, NSTEP_SYNC, DF_SYNC, TSTEP_SYNC, JZ, MLAG } from './constants.js';

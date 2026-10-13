@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Brian Bodiya (KC1WIH)
+// Licensed under the GNU GPL, version 3 only. See LICENSE.
+//
 // Baseline sanity test: fit a smooth floor to the averaged spectrum; check it sits under the spectrum and near its low percentile.
 import fs from 'node:fs';
 import { parseWav } from '../src/dsp/wav.js';
